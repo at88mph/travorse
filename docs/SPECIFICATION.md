@@ -1,6 +1,6 @@
 # CANFAR Storage User Interface — Specification
 
-**Version:** 0.13 (draft)  
+**Version:** 0.15 (draft)  
 **Status:** Normative for initial implementation  
 **Audience:** Developers implementing **Travorse**, platform operators, and reviewers replacing the sunset Java `storage-ui`.
 
@@ -48,8 +48,9 @@ Deliver a **filesystem-like browser** backed by **IVOA VOSpace 2.x**, using fami
 
 ### 1.3 Users and authentication
 
-- **Primary users:** Authenticated CANFAR researchers with VOSpace access on **this** deployment’s service
-- **Anonymous access:** Only where content is public; otherwise login is required
+- **Primary users:** CANFAR researchers browsing this deployment’s VOSpace. A session is **optional**. Public folders are visible without signing in; other folders are restricted the way a filesystem is.
+- **Anonymous access:** The BFF calls VOSpace with no bearer token. The service decides what that caller can see.
+- **Signed-in access:** The same calls include the user’s bearer token. Group memberships still control what they can open. A 401 or 403 means a login **may** help, and it may not (§5.2).
 - **Operators:** Configure **one** VOSpace service binding, OIDC (Keycloak), Registry, optional Redis (Registry cache), and feature flags via Helm/env (no UI required for v1)
 
 ### 1.4 Phased delivery
@@ -132,7 +133,7 @@ The browser talks **only** to the Next.js origin (HTML, static assets, and JSON/
 
 The BFF:
 
-1. Validates the OIDC session and obtains a **Bearer access token** for outbound calls
+1. When a session exists, obtains a **Bearer access token** for outbound calls. When it does not, calls VOSpace anonymously. The service, not the BFF, decides whether the folder is public.
 2. Resolves service **resource IDs** to HTTPS base URLs via the **IVOA Registry**, through a **TTL cache** (§3)
 3. Maps the file/folder/link model to VOSpace protocol operations (server-side only) and performs transfers and (optionally) GMS calls on behalf of the user
 
@@ -149,7 +150,7 @@ flowchart LR
   Browser -->|same-origin JSON and streams| BFF
   BFF --> RegCache
   RegCache -->|cache miss only| Registry
-  BFF -->|authenticated HTTP| VOSpace
+  BFF -->|bearer if signed in, else anonymous| VOSpace
   BFF --> GMS
   BFF -.->|optional| Redis
 ```
@@ -409,9 +410,9 @@ The CANFAR Science Platform is moving from **legacy SSO cookies** to **Keycloak*
 - Scopes and audience as required by CANFAR platform policy
 - **`AUTH_SECRET`** (or equivalent) for signing/encrypting session material
 
-**BFF-only upstream auth:** Browser code calls **same-origin** `/api/…` routes only. It **must not** attach `Authorization: Bearer` from JavaScript (see Science Portal `getAuthHeader()` in OIDC mode). Route Handlers obtain credentials via **`await auth()`** on the server and forward Bearer tokens to VOSpace/GMS.
+**BFF-only upstream auth:** Browser code calls **same-origin** `/api/…` routes only. It **must not** attach `Authorization: Bearer` from JavaScript (see Science Portal `getAuthHeader()` in OIDC mode). When a session exists, Route Handlers obtain credentials via **`await auth()`** on the server and forward the Bearer token to VOSpace/GMS. When it does not, VOSpace is called with no `Authorization` header.
 
-**Outbound calls:** All VOSpace and GMS HTTP requests use **`Authorization: Bearer <access_token>`** from the server-side session. Registry lookups for service URLs use **`AuthMethod.TOKEN`** consistently.
+**Outbound calls:** VOSpace and GMS HTTP requests use **`Authorization: Bearer <access_token>`** only when the caller has a session. Anonymous requests omit that header. Registry lookups for service URLs stay anonymous.
 
 **Non-goals:** Legacy SSO cookies, `localStorage` / `sessionStorage` tokens, dual auth modes, or certificate-only browser flows in v1. **Not** the sunset Java pattern of Redis lookup cookies unless explicitly revisited later.
 
@@ -439,10 +440,14 @@ sequenceDiagram
   Note over Browser,Cookie: JS never sees token bytes
 
   Browser->>BFF: GET /api/v1/folders/.../entries
-  BFF->>Cookie: Read session JWT server-side
-  BFF->>VOS: Bearer access_token
-  VOS->>BFF: Response
-  BFF->>Browser: JSON listing only
+  BFF->>Cookie: Read session JWT server-side, if present
+  alt signed in
+    BFF->>VOS: Bearer access_token
+  else anonymous
+    BFF->>VOS: no Authorization header
+  end
+  VOS->>BFF: Listing, or 401/403, or another error
+  BFF->>Browser: JSON listing, login-may-be-needed, or the service error
 ```
 
 **Refresh:** Access token renewal runs in the NextAuth **`jwt` callback** on the server (same pattern as Science Portal `auth.ts`). Updated tokens are written back into a **new session cookie**; the client still never receives raw tokens.
@@ -453,10 +458,12 @@ sequenceDiagram
 
 ### 5.2 Authorization semantics
 
-- **401 Unauthorized:** No valid session; UI redirects to login with return URL
-- **403 Forbidden:** Authenticated but folder/file/link not accessible for the attempted action; show clear message
-- **404 Not Found:** Unknown path or item
-- Never leak tokens, session secrets, or Registry internals in error bodies or client session JSON
+Authentication is **optional**. VOSpace is the access check, in the same way a filesystem allows wandering through some directories and refuses others.
+
+- The BFF does **not** reject a listing because the browser has no session. It forwards the call and returns what VOSpace returns.
+- **401 or 403 from VOSpace:** Tell the user that a login **may** be needed. Say that signing in may still not grant access when their group memberships do not allow it. Do not treat this as “you must sign in” and do not redirect automatically.
+- **Any other error:** Report the service message as returned (status and text). Do not replace it with a generic summary.
+- Never leak tokens or session secrets in error bodies or client session JSON.
 
 ### 5.3 CSRF and mutating requests
 
@@ -504,6 +511,8 @@ Operational routes are **unauthenticated** (no session required). They must not 
 ### 6.2 List folder contents — `GET /api/v1/folders/{path...}/entries`
 
 Lists **files, folders, and links** directly inside the folder at `{path}`. For the storage root, use path `/`.
+
+**Authentication:** Not required. Anonymous callers see what VOSpace exposes publicly. A signed-in caller’s bearer token is forwarded when a session exists. VOSpace **401** and **403** use the login-may-be-needed message in §5.2. Other failures pass through the service error.
 
 **Query:**
 
@@ -857,7 +866,7 @@ Operations can take **tens of seconds or longer** (large `/home` listings, multi
 | Request exceeds ~2s | Inline notice: “This folder may be large; still loading…” (do not block the rest of the shell) |
 | Paged results (`nextStartUri`) | Show partial results immediately; **“Load more”** or infinite scroll with spinner at bottom; display loaded count (for example “Showing 400 of many…”) |
 | Background refetch | Keep previous listing visible with subtle progress indicator (stale-while-revalidate) |
-| Failure | Error banner with **Retry**; preserve last successful listing when retrying |
+| Failure | Error banner with **Retry**. A VOSpace **401** or **403** says a login may be needed and that group memberships may still deny access (§5.2). Any other failure shows the service message as returned. Preserve the last successful listing when retrying |
 | Empty folder | Distinct empty state (not confused with loading) |
 
 Do not leave the user staring at an unchanged screen while waiting for VOSpace.
@@ -1038,3 +1047,4 @@ The Java application will **not** receive new features. This table is for operat
 | 0.12 | 2026-10-21 | Product/repo name **Travorse** (`travorse`); replaces working name Vosya |
 | 0.13 | 2026-10-21 | Retire `user-storage-app` path/name; canonical repo **travorse** only |
 | 0.14 | 2026-10-21 | VOSpace binding is one `vos://` prefix (`VOSPACE_URI`); Registry resource ID is derived |
+| 0.15 | 2026-10-21 | Authentication optional; VOSpace 401/403 means a login may be needed (§5.2) |

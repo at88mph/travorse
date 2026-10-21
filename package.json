@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./scripts/register-ts-extensions.mjs --test src/lib/vospace/*.test.ts"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./scripts/register-ts-extensions.mjs --test src/lib/vospace/*.test.ts src/lib/storage/*.test.ts"
   },
   "dependencies": {
     "next": "^15.5.28",

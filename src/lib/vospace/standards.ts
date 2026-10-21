@@ -27,6 +27,8 @@ export const PROPERTY_GROUP_READ = `${CORE}groupread`;
 export const PROPERTY_GROUP_WRITE = `${CORE}groupwrite`;
 export const PROPERTY_IS_PUBLIC = `${CORE}ispublic`;
 export const PROPERTY_IS_LOCKED = 'ivo://cadc.nrc.ca/vospace/core#islocked';
+export const PROPERTY_READABLE = 'ivo://cadc.nrc.ca/vospace/core#readable';
+export const PROPERTY_WRITABLE = 'ivo://cadc.nrc.ca/vospace/core#writable';
 export const PROPERTY_INHERIT_PERMISSIONS = 'ivo://cadc.nrc.ca/vospace/core#inheritPermissions';
 
 /** OpenCADC separates group URIs in groupread / groupwrite with a space. */
