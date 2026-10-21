@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { folderPathFromSegments, InvalidFolderPathError } from './folder-path';
+import {
+  browseHref,
+  folderBreadcrumbs,
+  folderPathFromBrowseSegments,
+  folderPathFromSegments,
+  InvalidFolderPathError,
+} from './folder-path';
 import { listFolderEntries, NotAFolderError, toFolderListing } from './listing';
 import type { VospaceNode } from '../vospace/node';
 import {
@@ -29,6 +35,19 @@ describe('folder path', () => {
 
   it('rejects parent segments', () => {
     assert.throws(() => folderPathFromSegments(['home', '..', 'entries']), InvalidFolderPathError);
+  });
+
+  it('maps browse URLs onto folder paths', () => {
+    assert.equal(folderPathFromBrowseSegments(undefined), '/');
+    assert.equal(folderPathFromBrowseSegments([]), '/');
+    assert.equal(folderPathFromBrowseSegments(['home', 'My docs']), '/home/My docs');
+    assert.equal(browseHref('/'), '/browse');
+    assert.equal(browseHref('/home/My docs'), '/browse/home/My%20docs');
+    assert.deepEqual(
+      folderBreadcrumbs('/home/docs').map((crumb) => crumb.href),
+      ['/browse', '/browse/home', '/browse/home/docs'],
+    );
+    assert.throws(() => folderPathFromBrowseSegments(['home', '..']), InvalidFolderPathError);
   });
 });
 

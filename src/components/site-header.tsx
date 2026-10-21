@@ -1,12 +1,13 @@
+import Link from 'next/link';
 import { SignInOut } from '@/components/sign-in-out';
 
 export function SiteHeader() {
   return (
     <header className="site-header">
-      <div className="brand">
+      <Link href="/browse" className="brand">
         Travorse
         <span>CANFAR storage browser</span>
-      </div>
+      </Link>
       <SignInOut />
     </header>
   );

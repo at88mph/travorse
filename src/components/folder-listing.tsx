@@ -1,8 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { signIn, useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import { normalizedBasePath } from '@/lib/env-client';
+import { browseHref, folderBreadcrumbs } from '@/lib/storage/folder-path';
 import type { FolderListing, StorageEntry } from '@/lib/storage/types';
 
 interface FolderListingViewProps {
@@ -57,9 +59,7 @@ export function FolderListingView({ folderPath }: FolderListingViewProps) {
 
   return (
     <section className="card" aria-busy={state.status === 'loading'} aria-labelledby="folder-heading">
-      <h1 id="folder-heading" style={{ marginTop: 0, fontSize: '1.35rem' }}>
-        {folderPath === '/' ? 'Root' : folderPath}
-      </h1>
+      <FolderPath folderPath={folderPath} />
       {state.status === 'loading' ? <LoadingNotice slow={state.slow} /> : null}
       {state.status === 'error' ? (
         <div className="banner-error" role="alert">
@@ -93,6 +93,33 @@ function LoadingNotice({ slow }: { slow: boolean }) {
         <span />
       </div>
     </div>
+  );
+}
+
+function FolderPath({ folderPath }: { folderPath: string }) {
+  const crumbs = folderBreadcrumbs(folderPath);
+  return (
+    <>
+      <nav aria-label="Folder path">
+        <ol className="breadcrumb">
+          {crumbs.map((crumb, index) => {
+            const current = index === crumbs.length - 1;
+            return (
+              <li key={crumb.href}>
+                {current ? (
+                  <span aria-current="page">{crumb.label}</span>
+                ) : (
+                  <Link href={crumb.href}>{crumb.label}</Link>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
+      <h1 id="folder-heading" className="sr-only">
+        {folderPath === '/' ? 'Root' : folderPath}
+      </h1>
+    </>
   );
 }
 
@@ -133,7 +160,9 @@ function ListingTable({ listing }: { listing: FolderListing }) {
 function EntryRow({ entry }: { entry: StorageEntry }) {
   return (
     <tr>
-      <th scope="row">{entry.name}</th>
+      <th scope="row">
+        {entry.kind === 'folder' ? <Link href={browseHref(entry.path)}>{entry.name}</Link> : entry.name}
+      </th>
       <td>{entry.kind}</td>
       <td>{entry.kind === 'file' ? entry.sizeDisplay : ''}</td>
       <td title={entry.modified}>{entry.modifiedDisplay}</td>

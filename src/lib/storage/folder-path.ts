@@ -30,3 +30,38 @@ export function parentFolderPath(folderPath: string): string | null {
   if (index <= 0) return '/';
   return folderPath.slice(0, index);
 }
+
+/** Folder path for `/browse` and `/browse/{segments}`. */
+export function folderPathFromBrowseSegments(segments: string[] | undefined): string {
+  if (!segments || segments.length === 0) return '/';
+  try {
+    const normalized = normalizeNodePath(`/${segments.join('/')}`);
+    return normalized === '' ? '/' : normalized;
+  } catch {
+    throw new InvalidFolderPathError();
+  }
+}
+
+/** App route that opens a folder. The storage root is `/browse`. */
+export function browseHref(folderPath: string): string {
+  if (folderPath === '/' || folderPath === '') return '/browse';
+  const segments = folderPath.split('/').filter(Boolean).map(encodeURIComponent);
+  return `/browse/${segments.join('/')}`;
+}
+
+export interface FolderCrumb {
+  label: string;
+  href: string;
+}
+
+/** Root plus each segment, for the folder path trail. */
+export function folderBreadcrumbs(folderPath: string): FolderCrumb[] {
+  const crumbs: FolderCrumb[] = [{ label: 'Root', href: '/browse' }];
+  if (folderPath === '/' || folderPath === '') return crumbs;
+  let path = '';
+  for (const segment of folderPath.split('/').filter(Boolean)) {
+    path += `/${segment}`;
+    crumbs.push({ label: segment, href: browseHref(path) });
+  }
+  return crumbs;
+}
