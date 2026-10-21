@@ -54,12 +54,13 @@ export interface FolderCrumb {
   href: string;
 }
 
-/** Root plus each segment, for the folder path trail. */
+/** Links to folders above the current one. The current path is shown with the item count. */
 export function folderBreadcrumbs(folderPath: string): FolderCrumb[] {
+  if (folderPath === '/' || folderPath === '') return [];
   const crumbs: FolderCrumb[] = [{ label: 'Root', href: '/browse' }];
-  if (folderPath === '/' || folderPath === '') return crumbs;
+  const ancestors = folderPath.split('/').filter(Boolean).slice(0, -1);
   let path = '';
-  for (const segment of folderPath.split('/').filter(Boolean)) {
+  for (const segment of ancestors) {
     path += `/${segment}`;
     crumbs.push({ label: segment, href: browseHref(path) });
   }

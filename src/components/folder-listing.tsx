@@ -60,6 +60,7 @@ export function FolderListingView({ folderPath }: FolderListingViewProps) {
   return (
     <section className="card" aria-busy={state.status === 'loading'} aria-labelledby="folder-heading">
       <FolderPath folderPath={folderPath} />
+      <p className="muted folder-summary">{folderSummary(folderPath, state)}</p>
       {state.status === 'loading' ? <LoadingNotice slow={state.slow} /> : null}
       {state.status === 'error' ? (
         <div className="banner-error" role="alert">
@@ -100,22 +101,18 @@ function FolderPath({ folderPath }: { folderPath: string }) {
   const crumbs = folderBreadcrumbs(folderPath);
   return (
     <>
-      <nav aria-label="Folder path">
-        <ol className="breadcrumb">
-          {crumbs.map((crumb, index) => {
-            const current = index === crumbs.length - 1;
-            return (
+      {crumbs.length > 0 ? (
+        <nav aria-label="Folder path">
+          <ol className="breadcrumb">
+            {crumbs.map((crumb, index) => (
               <li key={crumb.href}>
-                {current ? (
-                  <span aria-current="page">{crumb.label}</span>
-                ) : (
-                  <Link href={crumb.href}>{crumb.label}</Link>
-                )}
+                {index > 0 ? <PathChevron /> : null}
+                <Link href={crumb.href}>{crumb.label}</Link>
               </li>
-            );
-          })}
-        </ol>
-      </nav>
+            ))}
+          </ol>
+        </nav>
+      ) : null}
       <h1 id="folder-heading" className="sr-only">
         {folderPath === '/' ? 'Root' : folderPath}
       </h1>
@@ -123,37 +120,46 @@ function FolderPath({ folderPath }: { folderPath: string }) {
   );
 }
 
+function PathChevron() {
+  return (
+    <svg className="breadcrumb-chevron" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}
+
+function folderSummary(folderPath: string, state: LoadState): string {
+  if (state.status !== 'ready') return folderPath;
+  const count = state.listing.entries.length;
+  const noun = count === 1 ? 'item' : 'items';
+  return `${count} ${noun} in ${state.listing.folderPath}`;
+}
+
 function ListingTable({ listing }: { listing: FolderListing }) {
   if (listing.entries.length === 0) {
     return <p className="empty-state">This folder is empty.</p>;
   }
   return (
-    <>
-      <p className="muted">
-        {listing.entries.length} {listing.entries.length === 1 ? 'item' : 'items'} in {listing.folderPath}
-      </p>
-      <div className="table-scroll">
-        <table className="listing-table">
-          <caption className="sr-only">Contents of {listing.folderPath}</caption>
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Kind</th>
-              <th scope="col">Size</th>
-              <th scope="col">Modified (UTC)</th>
-              <th scope="col">Read groups</th>
-              <th scope="col">Write groups</th>
-              <th scope="col">Owner</th>
-            </tr>
-          </thead>
-          <tbody>
-            {listing.entries.map((entry) => (
-              <EntryRow key={entry.path} entry={entry} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
+    <div className="table-scroll">
+      <table className="listing-table">
+        <caption className="sr-only">Contents of {listing.folderPath}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Size</th>
+            <th scope="col">Modified (UTC)</th>
+            <th scope="col">Read groups</th>
+            <th scope="col">Write groups</th>
+            <th scope="col">Owner</th>
+          </tr>
+        </thead>
+        <tbody>
+          {listing.entries.map((entry) => (
+            <EntryRow key={entry.path} entry={entry} />
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -161,15 +167,52 @@ function EntryRow({ entry }: { entry: StorageEntry }) {
   return (
     <tr>
       <th scope="row">
-        {entry.kind === 'folder' ? <Link href={browseHref(entry.path)}>{entry.name}</Link> : entry.name}
+        <span className="entry-name">
+          <EntryIcon kind={entry.kind} />
+          {entry.kind === 'folder' ? <Link href={browseHref(entry.path)}>{entry.name}</Link> : entry.name}
+        </span>
       </th>
-      <td>{entry.kind}</td>
       <td>{entry.kind === 'file' ? entry.sizeDisplay : ''}</td>
       <td title={entry.modified}>{entry.modifiedDisplay}</td>
       <td>{entry.readGroups.join(', ')}</td>
       <td>{entry.writeGroups.join(', ')}</td>
       <td>{entry.owner}</td>
     </tr>
+  );
+}
+
+function EntryIcon({ kind }: { kind: StorageEntry['kind'] }) {
+  const label = kind === 'folder' ? 'Folder' : kind === 'file' ? 'File' : 'Link';
+  return (
+    <span className={`entry-icon entry-icon-${kind}`} role="img" aria-label={label}>
+      {kind === 'folder' ? <FolderGlyph /> : kind === 'file' ? <FileGlyph /> : <LinkGlyph />}
+    </span>
+  );
+}
+
+function FolderGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M3.5 7.25A2.25 2.25 0 0 1 5.75 5h3.1l1.7 1.75h7.7a2.25 2.25 0 0 1 2.25 2.25v8A2.25 2.25 0 0 1 18.25 19.5H5.75A2.25 2.25 0 0 1 3.5 17.25v-10z" />
+    </svg>
+  );
+}
+
+function FileGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M14 3.5H7.75A2.25 2.25 0 0 0 5.5 5.75v12.5A2.25 2.25 0 0 0 7.75 20.5h8.5a2.25 2.25 0 0 0 2.25-2.25V8.5L14 3.5z" />
+      <path d="M14 3.5V8.5h6" />
+    </svg>
+  );
+}
+
+function LinkGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M10.2 13.2a4.25 4.25 0 0 0 6.01.15l1.55-1.55a4.25 4.25 0 0 0-6.01-6.01L10.4 7.14" />
+      <path d="M13.8 10.8a4.25 4.25 0 0 0-6.01-.15l-1.55 1.55a4.25 4.25 0 0 0 6.01 6.01l1.35-1.35" />
+    </svg>
   );
 }
 

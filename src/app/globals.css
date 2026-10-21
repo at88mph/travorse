@@ -74,7 +74,12 @@ button {
   text-decoration: none;
 }
 
-.brand span {
+.brand-mark {
+  color: red;
+  font-size: 1.2em;
+}
+
+.brand-tagline {
   color: var(--muted);
   font-weight: 400;
   font-size: 0.875rem;
@@ -137,8 +142,37 @@ button {
   text-align: left;
   padding: 0.55rem 0.75rem;
   border-bottom: 1px solid var(--border);
-  vertical-align: top;
+  vertical-align: middle;
   white-space: nowrap;
+}
+
+.entry-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.entry-icon {
+  display: inline-flex;
+  flex: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  color: var(--muted);
+}
+
+.entry-icon-folder {
+  color: var(--accent);
+}
+
+.entry-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .listing-table th[scope='row'] {
@@ -154,29 +188,38 @@ button {
   text-decoration: underline;
 }
 
+.folder-summary {
+  margin: 0 0 0.85rem;
+}
+
 .breadcrumb {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35rem 0;
+  align-items: center;
+  gap: 0.35rem;
   list-style: none;
-  margin: 0 0 1rem;
+  margin: 0 0 0.35rem;
   padding: 0;
-  font-size: 1.35rem;
-  font-weight: 650;
+  font-size: 0.9375rem;
+  font-weight: 500;
   line-height: 1.3;
 }
 
 .breadcrumb li {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.35rem;
 }
 
-.breadcrumb li:not(:last-child)::after {
-  content: '/';
+.breadcrumb-chevron {
+  width: 0.8rem;
+  height: 0.8rem;
   color: var(--muted);
-  font-weight: 400;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .breadcrumb a {
@@ -186,10 +229,6 @@ button {
 .breadcrumb a:hover,
 .breadcrumb a:focus-visible {
   text-decoration: underline;
-}
-
-.breadcrumb [aria-current='page'] {
-  color: var(--fg);
 }
 
 .listing-table tbody tr:last-child th,

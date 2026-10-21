@@ -43,9 +43,14 @@ describe('folder path', () => {
     assert.equal(folderPathFromBrowseSegments(['home', 'My docs']), '/home/My docs');
     assert.equal(browseHref('/'), '/browse');
     assert.equal(browseHref('/home/My docs'), '/browse/home/My%20docs');
+    assert.deepEqual(folderBreadcrumbs('/'), []);
+    assert.deepEqual(
+      folderBreadcrumbs('/home').map((crumb) => crumb.label),
+      ['Root'],
+    );
     assert.deepEqual(
       folderBreadcrumbs('/home/docs').map((crumb) => crumb.href),
-      ['/browse', '/browse/home', '/browse/home/docs'],
+      ['/browse', '/browse/home'],
     );
     assert.throws(() => folderPathFromBrowseSegments(['home', '..']), InvalidFolderPathError);
   });

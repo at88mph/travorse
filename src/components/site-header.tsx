@@ -5,8 +5,8 @@ export function SiteHeader() {
   return (
     <header className="site-header">
       <Link href="/browse" className="brand">
-        Travorse
-        <span>CANFAR storage browser</span>
+        Tra<span className="brand-mark">vo</span>rse
+        <span className="brand-tagline">CANFAR storage browser</span>
       </Link>
       <SignInOut />
     </header>
