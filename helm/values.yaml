@@ -40,6 +40,10 @@ application:
     readTimeoutMs: 6000
     # Maximum number of retries before moving on to the next Registry URL (default 1)
     maxRetries: 1
+  # VOSpace service binding. vos:// prefix; the ivo:// Registry resource ID is derived from it.
+  # Example: vos://cadc.nrc.ca~arc  →  ivo://cadc.nrc.ca/arc
+  vospace:
+    uri: ""
 
 # Extra container env entries (advanced overrides).
 env: []
@@ -50,11 +54,11 @@ replicaCount: 1
 
 # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
-  repository: nginx
+  repository: ghcr.io/at88mph/travorse
   # This sets the pull policy for images.
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: "v0.0.1"
 
 # This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 imagePullSecrets: []

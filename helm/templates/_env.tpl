@@ -103,6 +103,15 @@ Container env vars from .Values.application (and optional raw .Values.env overri
 {{- end }}
 {{- end }}
 
+{{- with $app.vospace }}
+{{- with .uri }}
+{{- if not (hasKey $skip "VOSPACE_URI") }}
+- name: VOSPACE_URI
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- with .Values.env }}
 {{ toYaml . }}
 {{- end }}

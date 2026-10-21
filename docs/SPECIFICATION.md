@@ -98,7 +98,7 @@ The application presents a **storage abstraction** over VOSpace. Users and clien
 | **File** | Byte stream (document, dataset, etc.) | Data |
 | **Link** | Pointer to another VOS URI or external URL | Link |
 
-**Path:** A single POSIX-style absolute path string (for example `/home/jdoe/project/data.fits`) identifies an entry within **this deployment’s** VOSpace. The BFF resolves path → VOS URI using configured `nodeUriPrefix`.
+**Path:** A single POSIX-style absolute path string (for example `/home/jdoe/project/data.fits`) identifies an entry within **this deployment’s** VOSpace. The BFF resolves path → VOS URI using the configured `vos://` prefix (`VOSPACE_URI`).
 
 **Discriminated entries:** Every item in a listing or detail response includes `kind: "folder" | "file" | "link"`. Shared fields (name, path, modified, owner, access) apply to all kinds; kind-specific fields (for example `sizeBytes` on files, `target` on links) are documented in §6.
 
@@ -259,8 +259,7 @@ Each running instance binds to **exactly one** VOSpace service. There is no list
 
 | Setting | Description |
 |---------|-------------|
-| `VOSPACE_RESOURCE_ID` | IVOA resource ID for this deployment’s VOSpace (Registry lookup) |
-| `VOSPACE_NODE_URI_PREFIX` | Base for path → `vos://` URI (for example `vos://cadc.nrc.ca~arc`) |
+| `VOSPACE_URI` | `vos://` prefix for this deployment (for example `vos://cadc.nrc.ca~arc`). The Registry resource ID is derived from the authority: `~` and `!` become `/`, so that prefix is `ivo://cadc.nrc.ca/arc`. This is the only VOSpace service binding. |
 | `VOSPACE_USER_HOME_DIR` | Base path for home folders (for example `/home`) |
 | `VOSPACE_PROJECTS_FOLDER_PATH` | Quick-link to shared projects tree (default `/projects`) |
 | `GMS_RESOURCE_ID` | Group Management service for permission UI |
@@ -287,8 +286,8 @@ Sunset `storage-ui` allowed **multiple** named services in `org.opencadc.vosui.p
 
 | Legacy (single `{name}`) | New env / config |
 |--------------------------|------------------|
-| `org.opencadc.vosui.{name}.service.resourceid` | `VOSPACE_RESOURCE_ID` |
-| `org.opencadc.vosui.{name}.node.resourceid` | `VOSPACE_NODE_URI_PREFIX` |
+| `org.opencadc.vosui.{name}.service.resourceid` | Derived from `VOSPACE_URI` (`ivo://` resource ID) |
+| `org.opencadc.vosui.{name}.node.resourceid` | `VOSPACE_URI` |
 | `org.opencadc.vosui.{name}.user.home` | `VOSPACE_USER_HOME_DIR` |
 | `org.opencadc.vosui.{name}.service.features.*` | `VOSPACE_FEATURES_*` or structured JSON |
 | `org.opencadc.vosui.gms.service_id` | `GMS_RESOURCE_ID` |
@@ -319,23 +318,22 @@ application:
     urls:
       - "https://cadc-west-01.canfar.net/reg"
     cacheTtlSeconds: 1800
-
-vospace:
-  resourceId: "ivo://cadc.nrc.ca/arc"
-  nodeUriPrefix: "vos://cadc.nrc.ca~arc"
-  userHomeDir: "/home"
-  projectsFolderPath: "/projects"
-  groupManagementUri: "https://www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/en/groups"
-  features:
-    batchDownload: false
-    batchUpload: false
-    externalLinks: false
-    paging: true
-    directDownload: false
+  vospace:
+    # vos://cadc.nrc.ca~arc → Registry resource ivo://cadc.nrc.ca/arc
+    uri: "vos://cadc.nrc.ca~arc"
+    userHomeDir: "/home"
+    projectsFolderPath: "/projects"
+    groupManagementUri: "https://www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/en/groups"
+    features:
+      batchDownload: false
+      batchUpload: false
+      externalLinks: false
+      paging: true
+      directDownload: false
 gmsResourceId: "ivo://cadc.nrc.ca/gms"
 ```
 
-A second backend (for example Vault) is a **second chart instance** with different `resourceId` / `nodeUriPrefix` and its own ingress URL — not a second entry in the same UI.
+A second backend (for example Vault) is a **second chart instance** with a different `vospace.uri` and its own ingress URL — not a second entry in the same UI.
 
 ### 4.4 Public config API response
 
@@ -345,6 +343,7 @@ A second backend (for example Vault) is a **second chart instance** with differe
 interface PublicConfig {
   /** Human-readable label for this deployment (optional; for header/branding, not backend switching). */
   deploymentLabel?: string;
+  /** Configured `vos://` prefix (`VOSPACE_URI`). */
   nodeUriPrefix: string;
   userHomeDir: string;
   projectsFolderPath: string;
@@ -898,7 +897,9 @@ Align visually with Science Portal storage/quota patterns where practical for su
 
 ## 8. VOSpace protocol mapping (implementer appendix)
 
-This section is **for implementers only**. The TypeScript BFF translates between the file/folder/link model (§1.7) and IVOA VOSpace HTTP/XML. Reference behavior: OpenCADC **`VOSpaceClient`** in sunset `storage-ui`.
+This section is **for implementers only**. The TypeScript BFF translates between the file/folder/link model (§1.7) and IVOA VOSpace HTTP/XML.
+
+The server client is `VOSpaceClient` in `src/lib/vospace/` (aligned with OpenCADC [`VOSpaceClient`](https://github.com/opencadc/vos/blob/main/cadc-vos-client/src/main/java/org/opencadc/vospace/client/VOSpaceClient.java)). It is constructed from `VOSPACE_URI`. [`VOSURI.getServiceURI`](https://github.com/opencadc/vos/blob/main/cadc-vos/src/main/java/org/opencadc/vospace/VOSURI.java) turns that `vos://` prefix into the Registry resource id (`vos://cadc.nrc.ca~arc` → `ivo://cadc.nrc.ca/arc`). `RegistryClient.getServiceURL` resolves the HTTPS server URL for a capability. The user’s bearer token is sent on the VOSpace HTTP request. Auth-method filtering of the registry lookup is not used; that Java overload is deprecated. Node get, create, set, and delete use the nodes capability. The server base URL is that access URL with a trailing `/nodes` removed.
 
 ### 8.1 Operations map
 
@@ -916,7 +917,7 @@ This section is **for implementers only**. The TypeScript BFF translates between
 
 ### 8.2 Registry standards (cache keys)
 
-Resolve and cache each `(resourceID, standard, authMethod)`:
+`resourceID` is the `ivo://` identifier derived from `VOSPACE_URI`. Resolve and cache each `(resourceID, standard)`:
 
 | Standard (Java `Standards.*`) | Use |
 |-------------------------------|-----|
@@ -978,7 +979,7 @@ The Java application will **not** receive new features. This table is for operat
   - **`application.registry.urls`** — IVOA Registry bases (→ `REGISTRY_URLS`); plus **`application.registry.*`** cache/timeouts; TypeScript **`RegistryClient`** follows [Java `RegistryClient`](https://github.com/opencadc/reg/blob/main/cadc-registry/src/main/java/ca/nrc/cadc/reg/client/RegistryClient.java) (`resource-caps` / `applications` property maps, then VOSI capabilities)
   - **`application.publicUrl`**, **`application.basePath`**
   - Optional Redis for Registry cache (§3); OIDC tokens live in Auth.js session cookies, not Redis
-  - ConfigMap / values for **single** `vospace` binding and feature flags
+  - **`application.vospace.uri`** — single `vos://` prefix (`VOSPACE_URI`); the `ivo://` resource ID is derived from it
   - `gmsID` / `GMS_RESOURCE_ID`
 - **Ingress:** TLS, large body size for uploads, extended read timeout for downloads
 - **Probes (normative):**
@@ -1036,3 +1037,4 @@ The Java application will **not** receive new features. This table is for operat
 | 0.11 | 2026-10-21 | Helm `application.auth` / `application.registry`; `REGISTRY_URLS`; TS RegistryClient (§3, §4.3, §10.3) |
 | 0.12 | 2026-10-21 | Product/repo name **Travorse** (`travorse`); replaces working name Vosya |
 | 0.13 | 2026-10-21 | Retire `user-storage-app` path/name; canonical repo **travorse** only |
+| 0.14 | 2026-10-21 | VOSpace binding is one `vos://` prefix (`VOSPACE_URI`); Registry resource ID is derived |

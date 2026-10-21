@@ -4,6 +4,15 @@ IVOA VOSpace browser for the CANFAR Science Platform — replacement for the sun
 
 **Repository root:** this directory (`travorse`). The former working name and path `user-storage-app` under `opencadc/` is **retired**; do not reference it in docs, CI, or deployment config.
 
+### Cursor / VS Code workspace
+
+Open **`travorse` as the workspace root** (not the parent `at88mph` folder):
+
+- **File → Open Folder…** → select this `travorse` directory, or  
+- **File → Open Workspace from File…** → `travorse.code-workspace` in this repo.
+
+The file tree should show `src/`, `helm/`, and `docs/` at the top level.
+
 ## Status
 
 Next.js scaffold with Keycloak/OIDC sign-in. Storage browse API and UI are in progress; see [docs/SPECIFICATION.md](./docs/SPECIFICATION.md).
@@ -23,7 +32,7 @@ Open [http://localhost:3000](http://localhost:3000). Register redirect URI in Ke
 
 ### Helm
 
-Deploy-time settings use top-level **`application`** in [`helm/values.yaml`](./helm/values.yaml): **`application.auth`**, **`application.publicUrl`**, and **`application.registry.urls`**. See spec §4.3.
+Deploy-time settings use top-level **`application`** in [`helm/values.yaml`](./helm/values.yaml): **`application.auth`**, **`application.publicUrl`**, **`application.registry.urls`**, and **`application.vospace.uri`** (`vos://` prefix). See spec §4.3.
 
 ## Documentation
 

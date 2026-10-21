@@ -1,6 +1,7 @@
 import { getEnv } from '@/lib/env';
 import { normalizeIssuer } from '@/lib/oidc-config';
 import { getRegistryBaseUrls } from '@/lib/registry/registry-config';
+import { parseVospacePrefix } from '@/lib/vospace/vos-uri';
 
 export type CheckStatus = 'ok' | 'failed' | 'skipped';
 
@@ -29,10 +30,16 @@ function checkOidcConfig(): { status: CheckStatus; message?: string } {
   return { status: 'ok' };
 }
 
-function checkVospaceConfig(): CheckStatus {
-  const resourceId = getEnv('VOSPACE_RESOURCE_ID');
-  if (!resourceId) return 'skipped';
-  return resourceId.length > 0 ? 'ok' : 'failed';
+function checkVospaceConfig(): { status: CheckStatus; message?: string } {
+  const uri = getEnv('VOSPACE_URI');
+  if (!uri) return { status: 'skipped' };
+  try {
+    parseVospacePrefix(uri);
+    return { status: 'ok' };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : 'invalid VOS URI';
+    return { status: 'failed', message: `VOSPACE_URI is invalid: ${detail}` };
+  }
 }
 
 function checkRegistryConfig(vospaceConfigured: boolean): { status: CheckStatus; message?: string } {
@@ -41,7 +48,7 @@ function checkRegistryConfig(vospaceConfigured: boolean): { status: CheckStatus;
     if (vospaceConfigured) {
       return {
         status: 'failed',
-        message: 'REGISTRY_URLS must list at least one Registry base URL when VOSPACE_RESOURCE_ID is set',
+        message: 'REGISTRY_URLS must list at least one Registry base URL when VOSPACE_URI is set',
       };
     }
     return { status: 'skipped' };
@@ -57,12 +64,12 @@ function checkRegistryConfig(vospaceConfigured: boolean): { status: CheckStatus;
 }
 
 export function evaluateReadiness(): ReadinessResult {
-  const vospaceResourceId = getEnv('VOSPACE_RESOURCE_ID');
-  const registry = checkRegistryConfig(Boolean(vospaceResourceId));
+  const vospace = checkVospaceConfig();
+  const registry = checkRegistryConfig(vospace.status === 'ok');
   const checks: ReadinessResult['checks'] = {
     authSecret: getEnv('AUTH_SECRET') ? 'ok' : 'failed',
     oidcConfig: 'failed',
-    vospaceConfig: checkVospaceConfig(),
+    vospaceConfig: vospace.status,
     registryConfig: registry.status,
   };
 
@@ -72,8 +79,8 @@ export function evaluateReadiness(): ReadinessResult {
   const failedMessages: string[] = [];
   if (checks.authSecret === 'failed') failedMessages.push('AUTH_SECRET not configured');
   if (oidc.status === 'failed' && oidc.message) failedMessages.push(oidc.message);
-  if (checks.vospaceConfig === 'failed') {
-    failedMessages.push('VOSPACE_RESOURCE_ID is empty');
+  if (vospace.status === 'failed' && vospace.message) {
+    failedMessages.push(vospace.message);
   }
   if (registry.status === 'failed' && registry.message) {
     failedMessages.push(registry.message);
