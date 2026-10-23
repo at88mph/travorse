@@ -171,7 +171,7 @@ function modifiedFields(raw: string | null | undefined): { modified: string; mod
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'UTC',
-  }).format(date)} UTC`;
+  }).format(date)}`;
   return { modified, modifiedDisplay };
 }
 

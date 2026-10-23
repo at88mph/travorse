@@ -25,18 +25,6 @@ export default async function BrowsePage({ params }: BrowsePageProps) {
     <div className="app-shell">
       <SiteHeader />
       <main>
-        {signedIn ? (
-          <p className="muted" style={{ marginTop: 0 }}>
-            Signed in
-            {session?.user?.name ? (
-              <>
-                {' '}
-                as <strong>{session.user.name}</strong>
-              </>
-            ) : null}
-            .
-          </p>
-        ) : null}
         <FolderListingView folderPath={folderPath} />
       </main>
     </div>

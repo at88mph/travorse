@@ -60,7 +60,9 @@ export function FolderListingView({ folderPath }: FolderListingViewProps) {
   return (
     <section className="card" aria-busy={state.status === 'loading'} aria-labelledby="folder-heading">
       <FolderPath folderPath={folderPath} />
-      <p className="muted folder-summary">{folderSummary(folderPath, state)}</p>
+      <p className="muted folder-summary">
+        <FolderSummary folderPath={folderPath} state={state} />
+      </p>
       {state.status === 'loading' ? <LoadingNotice slow={state.slow} /> : null}
       {state.status === 'error' ? (
         <div className="banner-error" role="alert">
@@ -128,11 +130,15 @@ function PathChevron() {
   );
 }
 
-function folderSummary(folderPath: string, state: LoadState): string {
-  if (state.status !== 'ready') return folderPath;
+function FolderSummary({ folderPath, state }: { folderPath: string; state: LoadState }) {
+  if (state.status !== 'ready') return <strong>{folderPath}</strong>;
   const count = state.listing.entries.length;
   const noun = count === 1 ? 'item' : 'items';
-  return `${count} ${noun} in ${state.listing.folderPath}`;
+  return (
+    <>
+      <strong>{count}</strong> {noun} in <strong>{state.listing.folderPath}</strong>
+    </>
+  );
 }
 
 function ListingTable({ listing }: { listing: FolderListing }) {
