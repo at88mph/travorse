@@ -32,6 +32,17 @@ export function parentFolderPath(folderPath: string): string | null {
 }
 
 /** Folder path for `/browse` and `/browse/{segments}`. */
+/** Validates path segments for `…/statistics` routes (root uses `/folders/statistics`). */
+export function normalizeStatisticsFolderPath(segments: string[]): string {
+  if (segments.length === 0) return '/';
+  try {
+    const normalized = normalizeNodePath(`/${segments.join('/')}`);
+    return normalized === '' ? '/' : normalized;
+  } catch {
+    throw new InvalidFolderPathError();
+  }
+}
+
 export function folderPathFromBrowseSegments(segments: string[] | undefined): string {
   if (!segments || segments.length === 0) return '/';
   try {
@@ -47,6 +58,23 @@ export function browseHref(folderPath: string): string {
   if (folderPath === '/' || folderPath === '') return '/browse';
   const segments = folderPath.split('/').filter(Boolean).map(encodeURIComponent);
   return `/browse/${segments.join('/')}`;
+}
+
+/** Current folder path from the App Router browse pathname. */
+export function folderPathFromBrowsePathname(pathname: string, basePath = ''): string {
+  const normalizedBase = basePath.replace(/\/$/, '');
+  const browseRoot = normalizedBase ? `${normalizedBase}/browse` : '/browse';
+  if (pathname === browseRoot || pathname === `${browseRoot}/`) return '/';
+  if (!pathname.startsWith(`${browseRoot}/`)) return '/';
+  const rest = pathname.slice(browseRoot.length + 1);
+  const segments = rest.split('/').filter(Boolean).map((segment) => {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      return segment;
+    }
+  });
+  return folderPathFromBrowseSegments(segments);
 }
 
 export interface FolderCrumb {

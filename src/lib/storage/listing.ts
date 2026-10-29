@@ -30,11 +30,32 @@ export interface NodeReader {
 
 const LISTING_DETAIL = 'detail=max';
 
+export interface ListFolderOptions {
+  pageSize?: number;
+  /** Opaque VOS URI cursor from a prior `nextStartUri`. */
+  startUri?: string;
+}
+
 /** List the direct contents of a folder. `folderPath` `/` is the configured VOSpace root. */
-export async function listFolderEntries(reader: NodeReader, folderPath: string): Promise<FolderListing> {
+export async function listFolderEntries(
+  reader: NodeReader,
+  folderPath: string,
+  options?: ListFolderOptions,
+): Promise<FolderListing> {
   const canonical = folderPath === '/' ? '/' : folderPath;
-  const node = await reader.getNode(canonical, LISTING_DETAIL);
+  const node = await reader.getNode(canonical, buildListingQuery(options));
   return toFolderListing(node, reader.uriPrefix, canonical);
+}
+
+function buildListingQuery(options?: ListFolderOptions): string {
+  const parts = [LISTING_DETAIL];
+  if (options?.pageSize != null && options.pageSize > 0) {
+    parts.push(`limit=${Math.floor(options.pageSize)}`);
+  }
+  if (options?.startUri) {
+    parts.push(`startURI=${encodeURIComponent(options.startUri)}`);
+  }
+  return parts.join('&');
 }
 
 export function toFolderListing(node: VospaceNode, prefix: VosUri, folderPath: string): FolderListing {
@@ -49,10 +70,11 @@ export function toFolderListing(node: VospaceNode, prefix: VosUri, folderPath: s
     canRead: flag(node, PROPERTY_READABLE, true),
     canWrite: flag(node, PROPERTY_WRITABLE, false),
     entries,
+    ...(node.childrenNextUri ? { nextStartUri: node.childrenNextUri } : {}),
   };
 }
 
-function toStorageEntry(node: VospaceNode, prefix: VosUri): StorageEntry | null {
+export function toStorageEntry(node: VospaceNode, prefix: VosUri): StorageEntry | null {
   const located = locate(node.uri, prefix);
   if (!located || !located.name || located.path === '/') return null;
   const base = {
@@ -171,7 +193,7 @@ function modifiedFields(raw: string | null | undefined): { modified: string; mod
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'UTC',
-  }).format(date)}`;
+  }).format(date)} UTC`;
   return { modified, modifiedDisplay };
 }
 

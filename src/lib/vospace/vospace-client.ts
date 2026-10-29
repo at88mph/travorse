@@ -144,6 +144,81 @@ export class VOSpaceClient {
     await this.nodesRequest(path, 'DELETE');
   }
 
+  /** GET file content from the Files capability (for download proxying). */
+  async getFileStream(relativePath: string): Promise<Response> {
+    const target = this.resolveTarget(relativePath);
+    const filesUrl = await this.getFilesServiceURL();
+    const url = buildServiceEndpoint(filesUrl, target.path);
+    const headers: Record<string, string> = { Accept: '*/*' };
+    if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    try {
+      const response = await this.fetchImpl(url, {
+        method: 'GET',
+        headers,
+        cache: 'no-store',
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        throw new VospaceError(
+          `Unexpected redirect from VOSpace files${location ? ` to ${location}` : ''} (HTTP ${response.status})`,
+          { status: response.status },
+        );
+      }
+      if (!response.ok) {
+        const text = await response.text();
+        throw vospaceHttpError(response.status, text);
+      }
+      return response;
+    } catch (err) {
+      if (err instanceof VospaceError) throw err;
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new VospaceError(`GET ${url} timed out after ${this.requestTimeoutMs}ms`, { cause: err });
+      }
+      throw new VospaceError(`GET ${url} failed`, { cause: err });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** PUT file bytes to the Files capability after the data node exists. */
+  async putFileStream(relativePath: string, body: BodyInit, contentType?: string): Promise<void> {
+    const target = this.resolveTarget(relativePath);
+    const filesUrl = await this.getFilesServiceURL();
+    const url = buildServiceEndpoint(filesUrl, target.path);
+    const headers: Record<string, string> = { Accept: '*/*' };
+    if (contentType) headers['Content-Type'] = contentType;
+    if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    try {
+      const response = await this.fetchImpl(url, {
+        method: 'PUT',
+        headers,
+        body,
+        cache: 'no-store',
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+      if (response.status >= 200 && response.status < 300) return;
+      const text = await response.text();
+      throw vospaceHttpError(response.status, text);
+    } catch (err) {
+      if (err instanceof VospaceError) throw err;
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new VospaceError(`PUT ${url} timed out after ${this.requestTimeoutMs}ms`, { cause: err });
+      }
+      throw new VospaceError(`PUT ${url} failed`, { cause: err });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async lookup(standardId: string): Promise<string | null> {
     return this.services.getServiceURL(this.resourceId, standardId);
   }

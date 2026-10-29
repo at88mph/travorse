@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   browseHref,
   folderBreadcrumbs,
+  folderPathFromBrowsePathname,
   folderPathFromBrowseSegments,
   folderPathFromSegments,
   InvalidFolderPathError,
@@ -53,6 +54,9 @@ describe('folder path', () => {
       ['/browse', '/browse/home'],
     );
     assert.throws(() => folderPathFromBrowseSegments(['home', '..']), InvalidFolderPathError);
+    assert.equal(folderPathFromBrowsePathname('/browse'), '/');
+    assert.equal(folderPathFromBrowsePathname('/browse/home/docs'), '/home/docs');
+    assert.equal(folderPathFromBrowsePathname('/storage/browse/home', '/storage'), '/home');
   });
 });
 
@@ -172,5 +176,20 @@ describe('folder listing', () => {
         ),
       NotAFolderError,
     );
+  });
+
+  it('passes through childrenNextUri as nextStartUri', () => {
+    const listing = toFolderListing(
+      {
+        type: 'ContainerNode',
+        uri: 'vos://cadc.nrc.ca~arc/',
+        properties: [],
+        children: [],
+        childrenNextUri: 'vos://cadc.nrc.ca~arc/home?start=1',
+      },
+      prefix,
+      '/',
+    );
+    assert.equal(listing.nextStartUri, 'vos://cadc.nrc.ca~arc/home?start=1');
   });
 });

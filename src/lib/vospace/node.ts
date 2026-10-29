@@ -13,6 +13,8 @@ export interface VospaceNode {
   uri: string;
   properties: VospaceProperty[];
   children?: VospaceNode[];
+  /** When set, VOSpace returned a continuation URI for the next page of children. */
+  childrenNextUri?: string;
   busy?: boolean;
   accepts?: string[];
   provides?: string[];

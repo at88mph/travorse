@@ -1,7 +1,9 @@
 'use client';
 
 import { SessionProvider, signOut, useSession } from 'next-auth/react';
+import type { Session } from 'next-auth';
 import { useEffect, type ReactNode } from 'react';
+import { QueryProvider } from '@/components/query-provider';
 import { authApiBasePath, normalizedBasePath } from '@/lib/env-client';
 
 function SessionErrorRecovery() {
@@ -17,11 +19,19 @@ function SessionErrorRecovery() {
   return null;
 }
 
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers({
+  children,
+  session,
+}: {
+  children: ReactNode;
+  session: Session | null;
+}) {
   return (
-    <SessionProvider basePath={authApiBasePath()} refetchInterval={5 * 60}>
-      <SessionErrorRecovery />
-      {children}
+    <SessionProvider session={session} basePath={authApiBasePath()} refetchInterval={5 * 60}>
+      <QueryProvider>
+        <SessionErrorRecovery />
+        {children}
+      </QueryProvider>
     </SessionProvider>
   );
 }

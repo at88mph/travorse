@@ -1,4 +1,6 @@
+import { AppRouterCacheProvider } from '@mui/material-nextjs/v15-appRouter';
 import type { Metadata } from 'next';
+import { auth } from '@/auth';
 import { Providers } from '@/components/providers';
 import { VersionFooter } from '@/components/version-footer';
 import './globals.css';
@@ -8,14 +10,18 @@ export const metadata: Metadata = {
   description: 'CANFAR VOSpace storage browser',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const session = await auth();
+
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body>
-        <Providers>
-          {children}
-          <VersionFooter />
-        </Providers>
+        <AppRouterCacheProvider>
+          <Providers session={session}>
+            {children}
+            <VersionFooter />
+          </Providers>
+        </AppRouterCacheProvider>
       </body>
     </html>
   );

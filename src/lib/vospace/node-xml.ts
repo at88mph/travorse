@@ -53,6 +53,8 @@ function xmlToNode(el: XmlElement): VospaceNode {
     node.children = (nodes?.children ?? [])
       .filter((child) => child.name === 'node')
       .map(xmlToNode);
+    const nextUri = nodes ? attr(nodes, 'uri') : undefined;
+    if (nextUri) node.childrenNextUri = nextUri;
   }
   return node;
 }

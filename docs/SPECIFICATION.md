@@ -105,6 +105,8 @@ The application presents a **storage abstraction** over VOSpace. Users and clien
 
 **Internal code:** Server modules may use names such as `vospaceNode` in private TypeScript; that naming MUST NOT leak into HTTP responses or React component props intended for product UI.
 
+**Allocation (product term):** A **top-level folder** — a folder (`Container`) that is a **direct child of Root** when listing path `/`. Allocations are **discovered** from that Root listing (`kind: "folder"`), not hardcoded (typical CANFAR examples: `/home`, `/projects`). Configured paths such as `projectsFolderPath` and per-user `homePath` are **shortcuts** only. Quota properties (§6.12) do **not** define allocations.
+
 ---
 
 ## 2. Technology stack
@@ -818,17 +820,23 @@ Encode `path` segments in the URL consistently with the BFF `path` query/body.
 
 ### 7.2 Layout and components
 
-- **Shell:** MUI layout, light/dark theme (Science Portal parity)
+- **Shell:** MUI layout, light/dark theme (Science Portal parity); **full-width** browse surface (not a narrow centered column)
 - **Version footer:** Bottom-left muted text showing deployed version (§6.16); from `/api/version`
 - **Top bar:** Optional **deployment label** (read-only branding from config, not a backend switcher), **quick-links** (see below), login/user menu, link to Science Portal optional via config
-- **Quick-links (Phase 1):**
+- **Left navigation rail (collapsible on small viewports):**
+  - **Allocations:** folder children of Root from `GET /api/v1/folders/entries` at `/` (see §1.7 allocation definition); empty state when none are visible
+  - **Folder tree:** lazy **caret** expansion under each allocation; **folders only** in the rail; selection syncs with URL `/browse/…`
+  - **Storage statistics (quota)** strip at bottom of rail when §7.8 data is available (independent of allocation detection)
+- **Quick-links (Phase 1):** Toolbar or top bar — convenience jumps layered on allocations, not a second source of truth for top-level folders
   - **Home** — navigates to `session.navigation.homePath` when non-null; **hidden or disabled** when the user has no home folder (do not link to a non-existent path)
   - **Projects** — navigates to `session.navigation.projectsPath` (default **`/projects`**, overridable in deployment config)
   - Icons + text labels; keyboard accessible; reflect active state when the current browse path equals or is under the link target
-- **Toolbar:** Search/filter by name, Up, Root, Add (folder, upload, links), multi-select Download/Move/Delete when writable
-- **Main view:** Data table (default) with columns: name, size, modified (UTC), read/write groups, owner; optional grid view later
-- **Side panel (optional Phase 2):** Details, **access control** editor (multi-group)
-- **Copy:** Use “folder”, “file”, “link”, “access”, “read groups”, “read/write groups” — never “node”
+- **Navigation bar (main column):** Search/filter by name, Up, Root, Home/Projects quick-links — wayfinding only, not file operations
+- **Action bar (main column, above listing):** Primary **Upload** and **Download**; **New folder** / Add menu; **Move** and **Delete** when items are selected and folder is writable (spec §7.4). Sticky on desktop optional. Left rail remains navigation-only.
+- **App bar:** Global **upload progress** summary while transfers run (§7.7), not the primary Upload entry point
+- **Main view:** Breadcrumb (accessibility + deep links), then data table (default) with columns: name, size, modified (UTC), read/write groups, owner; optional grid view later
+- **Side panel (optional Phase 2):** Details, **access control** editor (multi-group) — **right** side; do not conflate with the left allocation rail
+- **Copy:** Use “folder”, “file”, “link”, “access”, “read groups”, “read/write groups”, “allocation” where helpful — never “node”
 
 ### 7.3 Client state
 

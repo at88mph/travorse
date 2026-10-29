@@ -1,86 +1,147 @@
 'use client';
 
+import DownloadIcon from '@mui/icons-material/Download';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { signIn, useSession } from 'next-auth/react';
-import { useEffect, useState } from 'react';
-import { normalizedBasePath } from '@/lib/env-client';
+import { useEffect, useMemo } from 'react';
+import {
+  isDownloadableEntry,
+  useBrowseCapabilities,
+  useBrowseFolderPath,
+  useBrowseNameFilter,
+  useBrowseSelection,
+} from '@/components/browse/browse-context';
+import { UploadProgressChip } from '@/components/browse/upload-progress-chip';
+import { triggerBrowserDownload } from '@/lib/storage/files-client';
 import { browseHref, folderBreadcrumbs } from '@/lib/storage/folder-path';
+import {
+  fetchFolderEntries,
+  folderEntriesQueryKey,
+  FolderEntriesError,
+} from '@/lib/storage/entries-client';
 import type { FolderListing, StorageEntry } from '@/lib/storage/types';
 
-interface FolderListingViewProps {
-  folderPath: string;
-}
+const TABLE_PAGE_SIZE = 500;
 
-type LoadState =
-  | { status: 'loading'; slow: boolean }
-  | { status: 'ready'; listing: FolderListing }
-  | { status: 'error'; message: string; httpStatus?: number };
-
-export function FolderListingView({ folderPath }: FolderListingViewProps) {
+export function FolderListingView() {
+  const folderPath = useBrowseFolderPath();
+  const { filter } = useBrowseNameFilter();
+  const { setCapabilities } = useBrowseCapabilities();
   const { status: sessionStatus } = useSession();
-  const [state, setState] = useState<LoadState>({ status: 'loading', slow: false });
-  const [attempt, setAttempt] = useState(0);
+
+  const {
+    data,
+    error,
+    isPending,
+    isFetching,
+    isFetchingNextPage,
+    fetchNextPage,
+    hasNextPage,
+    refetch,
+    isError,
+  } = useInfiniteQuery({
+    queryKey: folderEntriesQueryKey.infinite(folderPath, TABLE_PAGE_SIZE),
+    queryFn: ({ pageParam, signal }) =>
+      fetchFolderEntries({
+        folderPath,
+        pageSize: TABLE_PAGE_SIZE,
+        startUri: pageParam,
+        signal,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextStartUri,
+    placeholderData: keepPreviousData,
+  });
+
+  const listing = useMemo((): FolderListing | null => {
+    if (!data?.pages.length) return null;
+    const first = data.pages[0];
+    const entries = data.pages.flatMap((page) => page.entries);
+    const lastPage = data.pages[data.pages.length - 1];
+    return {
+      folderPath: first.folderPath,
+      parentPath: first.parentPath,
+      canRead: first.canRead,
+      canWrite: first.canWrite,
+      entries,
+      ...(lastPage.nextStartUri ? { nextStartUri: lastPage.nextStartUri } : {}),
+    };
+  }, [data]);
+
+  const filteredEntries = useMemo(() => {
+    if (!listing) return [];
+    const needle = filter.trim().toLowerCase();
+    if (!needle) return listing.entries;
+    return listing.entries.filter((entry) => entry.name.toLowerCase().includes(needle));
+  }, [listing, filter]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    setState({ status: 'loading', slow: false });
-    const slowTimer = window.setTimeout(() => {
-      setState((current) => (current.status === 'loading' ? { status: 'loading', slow: true } : current));
-    }, 2000);
+    if (listing) {
+      setCapabilities({ canRead: listing.canRead, canWrite: listing.canWrite });
+    } else if (!isPending && isError) {
+      setCapabilities(null);
+    }
+  }, [listing, isPending, isError, setCapabilities]);
 
-    const url = entriesUrl(folderPath);
-    fetch(url, { credentials: 'same-origin', signal: controller.signal, cache: 'no-store' })
-      .then(async (response) => {
-        const body = (await response.json().catch(() => ({}))) as FolderListing & { message?: string };
-        if (!response.ok) {
-          if (!controller.signal.aborted) {
-            setState({
-              status: 'error',
-              message: body.message || response.statusText || `HTTP ${response.status}`,
-              httpStatus: response.status,
-            });
-          }
-          return;
-        }
-        if (!controller.signal.aborted) setState({ status: 'ready', listing: body });
-      })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
-        if (err instanceof Error && err.name === 'AbortError') return;
-        const message = err instanceof Error ? err.message : String(err);
-        setState({ status: 'error', message });
-      });
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(slowTimer);
-    };
-  }, [folderPath, attempt]);
+  const showSlowNotice = isFetching && !isPending;
 
   return (
-    <section className="card" aria-busy={state.status === 'loading'} aria-labelledby="folder-heading">
-      <FolderPath folderPath={folderPath} />
+    <Box
+      component="section"
+      className="card"
+      aria-busy={isFetching}
+      aria-labelledby="folder-heading"
+      sx={{ bgcolor: 'background.paper' }}
+    >
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 1,
+          mb: 0.35,
+        }}
+      >
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <FolderPath folderPath={folderPath} />
+        </Box>
+        <UploadProgressChip />
+      </Box>
       <p className="muted folder-summary">
-        <FolderSummary folderPath={folderPath} state={state} />
+        <FolderSummary folderPath={folderPath} listing={listing} filteredCount={filteredEntries.length} filter={filter} />
       </p>
-      {state.status === 'loading' ? <LoadingNotice slow={state.slow} /> : null}
-      {state.status === 'error' ? (
-        <div className="banner-error" role="alert">
-          <p>{state.message}</p>
-          <div className="banner-actions">
-            {(state.httpStatus === 401 || state.httpStatus === 403) && sessionStatus !== 'authenticated' ? (
-              <button type="button" className="btn btn-primary" onClick={() => signIn('oidc')}>
-                Sign in
-              </button>
-            ) : null}
-            <button type="button" className="btn" onClick={() => setAttempt((value) => value + 1)}>
-              Retry
-            </button>
-          </div>
-        </div>
+      {isPending ? <LoadingNotice slow={showSlowNotice} /> : null}
+      {isError ? (
+        <ErrorBanner
+          error={error}
+          sessionStatus={sessionStatus}
+          onRetry={() => void refetch()}
+        />
       ) : null}
-      {state.status === 'ready' ? <ListingTable listing={state.listing} /> : null}
-    </section>
+      {listing && !isPending ? (
+        <>
+          <ListingTable entries={filteredEntries} folderPath={listing.folderPath} />
+          {hasNextPage ? (
+            <Box sx={{ mt: 2 }}>
+              <Button variant="outlined" onClick={() => void fetchNextPage()} disabled={isFetchingNextPage}>
+                {isFetchingNextPage ? 'Loading more…' : 'Load more'}
+              </Button>
+              {listing.nextStartUri ? (
+                <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
+                  Showing {listing.entries.length} items{hasNextPage ? ' (more available)' : ''}.
+                </p>
+              ) : null}
+            </Box>
+          ) : null}
+        </>
+      ) : null}
+    </Box>
   );
 }
 
@@ -94,6 +155,34 @@ function LoadingNotice({ slow }: { slow: boolean }) {
         <span />
         <span />
         <span />
+      </div>
+    </div>
+  );
+}
+
+function ErrorBanner({
+  error,
+  sessionStatus,
+  onRetry,
+}: {
+  error: unknown;
+  sessionStatus: string;
+  onRetry: () => void;
+}) {
+  const httpStatus = error instanceof FolderEntriesError ? error.httpStatus : undefined;
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    <div className="banner-error" role="alert">
+      <p>{message}</p>
+      <div className="banner-actions">
+        {(httpStatus === 401 || httpStatus === 403) && sessionStatus !== 'authenticated' ? (
+          <button type="button" className="btn btn-primary" onClick={() => signIn('oidc')}>
+            Sign in
+          </button>
+        ) : null}
+        <button type="button" className="btn" onClick={onRetry}>
+          Retry
+        </button>
       </div>
     </div>
   );
@@ -130,27 +219,43 @@ function PathChevron() {
   );
 }
 
-function FolderSummary({ folderPath, state }: { folderPath: string; state: LoadState }) {
-  if (state.status !== 'ready') return <strong>{folderPath}</strong>;
-  const count = state.listing.entries.length;
+function FolderSummary({
+  folderPath,
+  listing,
+  filteredCount,
+  filter,
+}: {
+  folderPath: string;
+  listing: FolderListing | null;
+  filteredCount: number;
+  filter: string;
+}) {
+  if (!listing) return <strong>{folderPath}</strong>;
+  const count = filter.trim() ? filteredCount : listing.entries.length;
   const noun = count === 1 ? 'item' : 'items';
   return (
     <>
-      <strong>{count}</strong> {noun} in <strong>{state.listing.folderPath}</strong>
+      <strong>{count}</strong> {noun} in <strong>{listing.folderPath}</strong>
+      {filter.trim() ? <> (filtered)</> : null}
     </>
   );
 }
 
-function ListingTable({ listing }: { listing: FolderListing }) {
-  if (listing.entries.length === 0) {
+function ListingTable({ entries, folderPath }: { entries: StorageEntry[]; folderPath: string }) {
+  const { isSelected, togglePath } = useBrowseSelection();
+
+  if (entries.length === 0) {
     return <p className="empty-state">This folder is empty.</p>;
   }
   return (
     <div className="table-scroll">
       <table className="listing-table">
-        <caption className="sr-only">Contents of {listing.folderPath}</caption>
+        <caption className="sr-only">Contents of {folderPath}</caption>
         <thead>
           <tr>
+            <th scope="col" className="sr-only">
+              Select
+            </th>
             <th scope="col">Name</th>
             <th scope="col">Size</th>
             <th scope="col">Modified (UTC)</th>
@@ -160,8 +265,13 @@ function ListingTable({ listing }: { listing: FolderListing }) {
           </tr>
         </thead>
         <tbody>
-          {listing.entries.map((entry) => (
-            <EntryRow key={entry.path} entry={entry} />
+          {entries.map((entry) => (
+            <EntryRow
+              key={entry.path}
+              entry={entry}
+              selected={isSelected(entry.path)}
+              onToggleSelect={() => togglePath(entry.path)}
+            />
           ))}
         </tbody>
       </table>
@@ -169,13 +279,40 @@ function ListingTable({ listing }: { listing: FolderListing }) {
   );
 }
 
-function EntryRow({ entry }: { entry: StorageEntry }) {
+function EntryRow({
+  entry,
+  selected,
+  onToggleSelect,
+}: {
+  entry: StorageEntry;
+  selected: boolean;
+  onToggleSelect: () => void;
+}) {
   return (
     <tr>
+      <td>
+        <Checkbox
+          size="small"
+          checked={selected}
+          onChange={onToggleSelect}
+          slotProps={{ input: { 'aria-label': `Select ${entry.name}` } }}
+        />
+      </td>
       <th scope="row">
         <span className="entry-name">
           <EntryIcon kind={entry.kind} />
           {entry.kind === 'folder' ? <Link href={browseHref(entry.path)}>{entry.name}</Link> : entry.name}
+          {isDownloadableEntry(entry) ? (
+            <Tooltip title={`Download ${entry.name}`}>
+              <IconButton
+                size="small"
+                aria-label={`Download ${entry.name}`}
+                onClick={() => triggerBrowserDownload(entry.path)}
+              >
+                <DownloadIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
         </span>
       </th>
       <td>{entry.kind === 'file' ? entry.sizeDisplay : ''}</td>
@@ -220,11 +357,4 @@ function LinkGlyph() {
       <path d="M13.8 10.8a4.25 4.25 0 0 0-6.01-.15l-1.55 1.55a4.25 4.25 0 0 0 6.01 6.01l1.35-1.35" />
     </svg>
   );
-}
-
-function entriesUrl(folderPath: string): string {
-  const base = normalizedBasePath();
-  if (folderPath === '/' || folderPath === '') return `${base}/api/v1/folders/entries`;
-  const segments = folderPath.split('/').filter(Boolean).map(encodeURIComponent);
-  return `${base}/api/v1/folders/${segments.join('/')}/entries`;
 }
