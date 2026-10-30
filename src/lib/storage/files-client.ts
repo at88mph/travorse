@@ -1,18 +1,16 @@
-import { normalizedBasePath } from '@/lib/env-client';
+import { withBasePath } from '@/lib/env-client';
 
 export function fileDownloadUrl(filePath: string): string {
-  const base = normalizedBasePath();
   const segments = filePath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-  return `${base}/api/v1/files/${segments}`;
+  return withBasePath(`/api/v1/files/${segments}`);
 }
 
 export function folderUploadUrl(folderPath: string): string {
-  const base = normalizedBasePath();
   if (folderPath === '/' || folderPath === '') {
-    return `${base}/api/v1/folders/files`;
+    return withBasePath('/api/v1/folders/files');
   }
   const segments = folderPath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-  return `${base}/api/v1/folders/files/${segments}`;
+  return withBasePath(`/api/v1/folders/files/${segments}`);
 }
 
 export interface UploadProgressEvent {

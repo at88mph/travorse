@@ -1,4 +1,4 @@
-import { normalizedBasePath } from '@/lib/env-client';
+import { withBasePath } from '@/lib/env-client';
 import { childFolderPath, validateNewFolderName } from '@/lib/storage/folder-name';
 import type { FolderEntry } from '@/lib/storage/types';
 
@@ -9,9 +9,8 @@ export function createFolderRequestUrl(parentFolderPath: string, segmentName: st
     throw new Error(validated.message);
   }
   const folderPath = childFolderPath(parentFolderPath, validated.name);
-  const base = normalizedBasePath();
   const segments = folderPath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-  return `${base}/api/v1/folders/${segments}`;
+  return withBasePath(`/api/v1/folders/${segments}`);
 }
 
 export async function createFolder(

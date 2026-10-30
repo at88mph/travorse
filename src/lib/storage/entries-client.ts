@@ -1,4 +1,4 @@
-import { normalizedBasePath } from '@/lib/env-client';
+import { withBasePath } from '@/lib/env-client';
 import type { FolderListing } from '@/lib/storage/types';
 
 export interface FetchFolderEntriesParams {
@@ -19,15 +19,16 @@ export class FolderEntriesError extends Error {
 }
 
 export function folderEntriesUrl(folderPath: string, params?: { pageSize?: number; startUri?: string }): string {
-  const base = normalizedBasePath();
   const pathPart =
     folderPath === '/' || folderPath === ''
-      ? `${base}/api/v1/folders/entries`
-      : `${base}/api/v1/folders/${folderPath
-          .split('/')
-          .filter(Boolean)
-          .map(encodeURIComponent)
-          .join('/')}/entries`;
+      ? withBasePath('/api/v1/folders/entries')
+      : withBasePath(
+          `/api/v1/folders/${folderPath
+            .split('/')
+            .filter(Boolean)
+            .map(encodeURIComponent)
+            .join('/')}/entries`,
+        );
   const search = new URLSearchParams();
   if (params?.pageSize != null) search.set('pageSize', String(params.pageSize));
   if (params?.startUri) search.set('startUri', params.startUri);
@@ -68,8 +69,7 @@ export interface SessionNavigation {
 }
 
 export async function fetchSessionNavigation(signal?: AbortSignal): Promise<SessionNavigation> {
-  const base = normalizedBasePath();
-  const response = await fetch(`${base}/api/v1/session/navigation`, {
+  const response = await fetch(withBasePath('/api/v1/session/navigation'), {
     credentials: 'same-origin',
     signal,
     cache: 'no-store',
@@ -95,12 +95,11 @@ export interface StorageStatisticsResponse {
 }
 
 export function folderStatisticsUrl(folderPath: string): string {
-  const base = normalizedBasePath();
   if (folderPath === '/' || folderPath === '') {
-    return `${base}/api/v1/folders/statistics`;
+    return withBasePath('/api/v1/folders/statistics');
   }
   const segments = folderPath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-  return `${base}/api/v1/folders/statistics/${segments}`;
+  return withBasePath(`/api/v1/folders/statistics/${segments}`);
 }
 
 export async function fetchFolderStatistics(

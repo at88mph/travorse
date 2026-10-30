@@ -15,13 +15,4 @@ export function requireEnv(name: string, allowBuildDummy = false): string {
   throw new Error(`Missing required environment variable: ${name}`);
 }
 
-export function normalizedBasePath(): string {
-  const raw = getEnv('NEXT_PUBLIC_BASE_PATH') ?? '';
-  if (!raw || raw === '/') return '';
-  return raw.startsWith('/') ? raw.replace(/\/$/, '') : `/${raw.replace(/\/$/, '')}`;
-}
-
-export function authApiBasePath(): string {
-  const base = normalizedBasePath();
-  return base ? `${base}/api/auth` : '/api/auth';
-}
+export { authApiBasePath, normalizedBasePath, withBasePath } from '@/lib/base-path';

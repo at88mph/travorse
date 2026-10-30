@@ -32,7 +32,9 @@ Open [http://localhost:3000](http://localhost:3000). Register redirect URI in Ke
 
 ### Helm
 
-Deploy-time settings use top-level **`application`** in [`helm/values.yaml`](./helm/values.yaml): **`application.auth`**, **`application.publicUrl`**, **`application.registry.urls`**, and **`application.vospace.uri`** (`vos://` prefix). See spec §4.3.
+Deploy-time settings use top-level **`application`** in [`helm/values.yaml`](./helm/values.yaml): **`application.auth`**, **`application.publicUrl`**, **`application.basePath`** (context path / `NEXT_PUBLIC_BASE_PATH`), **`application.registry.urls`**, and **`application.vospace.uri`** (`vos://` prefix). See spec §4.3 and §4.6.
+
+When using a path prefix, build the container image with the same `NEXT_PUBLIC_BASE_PATH` as Helm `application.basePath`, and register OIDC redirect URIs under that prefix (for example `{origin}{basePath}/api/auth/callback/oidc`).
 
 ## Documentation
 

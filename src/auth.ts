@@ -5,7 +5,7 @@ import {
   getOidcConfig,
   tokenEndpoint,
 } from '@/lib/oidc-config';
-import { getEnv, normalizedBasePath } from '@/lib/env';
+import { authApiBasePath, getEnv, normalizedBasePath } from '@/lib/env';
 
 interface OidcProfile {
   sub: string;
@@ -85,7 +85,7 @@ async function refreshAccessToken(token: Record<string, unknown>): Promise<Recor
 const authConfig: NextAuthConfig = {
   secret: getEnv('AUTH_SECRET'),
   trustHost: getEnv('AUTH_TRUST_HOST') === 'true' ? true : undefined,
-  basePath: '/api/auth',
+  basePath: authApiBasePath(),
   useSecureCookies: secureCookiesEnabled(),
   pages: {
     signIn: `${normalizedBasePath() || ''}/`,
