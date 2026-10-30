@@ -8,7 +8,7 @@ import {
   folderPathFromSegments,
   InvalidFolderPathError,
 } from './folder-path';
-import { listFolderEntries, NotAFolderError, toFolderListing } from './listing';
+import { buildListingQuery, listFolderEntries, NotAFolderError, toFolderListing } from './listing';
 import type { VospaceNode } from '../vospace/node';
 import {
   PROPERTY_CREATOR,
@@ -176,6 +176,16 @@ describe('folder listing', () => {
         ),
       NotAFolderError,
     );
+  });
+
+  it('builds Vault paging query with uri cursor', () => {
+    assert.equal(buildListingQuery(), 'detail=max');
+    assert.equal(buildListingQuery({ pageSize: 400 }), 'detail=max&limit=400');
+    assert.equal(
+      buildListingQuery({ pageSize: 100, startUri: 'vos://cadc.nrc.ca~arc/home?start=1' }),
+      'detail=max&limit=100&uri=vos%3A%2F%2Fcadc.nrc.ca~arc%2Fhome%3Fstart%3D1',
+    );
+    assert.ok(!buildListingQuery({ startUri: 'vos://x' }).includes('startURI'));
   });
 
   it('passes through childrenNextUri as nextStartUri', () => {

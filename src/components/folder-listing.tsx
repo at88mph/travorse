@@ -1,39 +1,74 @@
 'use client';
 
 import DownloadIcon from '@mui/icons-material/Download';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
+import FormControl from '@mui/material/FormControl';
 import IconButton from '@mui/material/IconButton';
+import InputLabel from '@mui/material/InputLabel';
+import LinearProgress from '@mui/material/LinearProgress';
+import MenuItem from '@mui/material/MenuItem';
+import Select from '@mui/material/Select';
 import Tooltip from '@mui/material/Tooltip';
-import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { signIn, useSession } from 'next-auth/react';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   isDownloadableEntry,
   useBrowseCapabilities,
   useBrowseFolderPath,
   useBrowseNameFilter,
   useBrowseSelection,
+  useBrowseListingPageSize,
+  useMainListingSettled,
 } from '@/components/browse/browse-context';
 import { UploadProgressChip } from '@/components/browse/upload-progress-chip';
+import { publicConfigQueryKey, fetchPublicConfig } from '@/lib/config-client';
 import { triggerBrowserDownload } from '@/lib/storage/files-client';
 import { browseHref, folderBreadcrumbs } from '@/lib/storage/folder-path';
-import {
-  fetchFolderEntries,
-  folderEntriesQueryKey,
-  FolderEntriesError,
-} from '@/lib/storage/entries-client';
+import { FolderEntriesError } from '@/lib/storage/entries-client';
+import { folderEntriesInfiniteQueryOptions } from '@/lib/storage/folder-entries-infinite';
+import { LISTING_PAGE_SIZE_OPTIONS } from '@/lib/storage/listing-page-size';
 import type { FolderListing, StorageEntry } from '@/lib/storage/types';
 
-const TABLE_PAGE_SIZE = 500;
+const SLOW_LOAD_MS = 2000;
+
+function useSlowLoadNotice(active: boolean): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setSlow(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSlow(true), SLOW_LOAD_MS);
+    return () => window.clearTimeout(timer);
+  }, [active]);
+  return slow;
+}
 
 export function FolderListingView() {
   const folderPath = useBrowseFolderPath();
   const { filter } = useBrowseNameFilter();
   const { setCapabilities } = useBrowseCapabilities();
+  const { markSettled } = useMainListingSettled();
+  const { pageSize: listingPageSize, setPageSize: setListingPageSize } = useBrowseListingPageSize();
   const { status: sessionStatus } = useSession();
+
+  const { data: publicConfig } = useQuery({
+    queryKey: publicConfigQueryKey,
+    queryFn: ({ signal }) => fetchPublicConfig(signal),
+    staleTime: 5 * 60_000,
+  });
+
+  const pagingEnabled = publicConfig?.features.paging ?? false;
+
+  const infiniteOptions = useMemo(
+    () => folderEntriesInfiniteQueryOptions(folderPath, publicConfig, listingPageSize),
+    [folderPath, publicConfig, listingPageSize],
+  );
 
   const {
     data,
@@ -45,17 +80,10 @@ export function FolderListingView() {
     hasNextPage,
     refetch,
     isError,
+    isFetched,
   } = useInfiniteQuery({
-    queryKey: folderEntriesQueryKey.infinite(folderPath, TABLE_PAGE_SIZE),
-    queryFn: ({ pageParam, signal }) =>
-      fetchFolderEntries({
-        folderPath,
-        pageSize: TABLE_PAGE_SIZE,
-        startUri: pageParam,
-        signal,
-      }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.nextStartUri,
+    ...infiniteOptions,
+    enabled: publicConfig !== undefined,
     placeholderData: keepPreviousData,
   });
 
@@ -89,7 +117,12 @@ export function FolderListingView() {
     }
   }, [listing, isPending, isError, setCapabilities]);
 
-  const showSlowNotice = isFetching && !isPending;
+  useEffect(() => {
+    if (isFetched && !isPending) markSettled();
+  }, [isFetched, isPending, markSettled]);
+
+  const initialLoadActive = isPending || (isFetching && !data?.pages.length);
+  const showSlowNotice = useSlowLoadNotice(initialLoadActive);
 
   return (
     <Box
@@ -113,9 +146,46 @@ export function FolderListingView() {
         </Box>
         <UploadProgressChip />
       </Box>
-      <p className="muted folder-summary">
-        <FolderSummary folderPath={folderPath} listing={listing} filteredCount={filteredEntries.length} filter={filter} />
+      {publicConfig && !pagingEnabled ? (
+        <Alert severity="info" sx={{ mb: 1.5 }}>
+          This deployment loads full folder listings. Very large folders may take several minutes.
+        </Alert>
+      ) : null}
+      {pagingEnabled ? (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+          <FormControl size="small" sx={{ minWidth: 140 }}>
+            <InputLabel id="folder-listing-page-size">Items per page</InputLabel>
+            <Select
+              labelId="folder-listing-page-size"
+              id="folder-listing-page-size-select"
+              label="Items per page"
+              value={listingPageSize}
+              onChange={(event) => setListingPageSize(Number(event.target.value))}
+            >
+              {LISTING_PAGE_SIZE_OPTIONS.map((size) => (
+                <MenuItem key={size} value={size}>
+                  {size}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
+      ) : null}
+      <p className="muted folder-summary" aria-live="polite">
+        <FolderSummary
+          folderPath={folderPath}
+          listing={listing}
+          filteredCount={filteredEntries.length}
+          filter={filter}
+          hasMore={Boolean(hasNextPage || listing?.nextStartUri)}
+          isFetchingNextPage={isFetchingNextPage}
+        />
       </p>
+      {filter.trim() && listing?.nextStartUri ? (
+        <p className="muted" style={{ fontSize: '0.875rem', marginTop: 0 }}>
+          Filter applies to loaded items only. Load more to search further in this folder.
+        </p>
+      ) : null}
       {isPending ? <LoadingNotice slow={showSlowNotice} /> : null}
       {isError ? (
         <ErrorBanner
@@ -129,14 +199,12 @@ export function FolderListingView() {
           <ListingTable entries={filteredEntries} folderPath={listing.folderPath} />
           {hasNextPage ? (
             <Box sx={{ mt: 2 }}>
+              {isFetchingNextPage ? (
+                <LinearProgress sx={{ mb: 1 }} aria-label="Loading more folder items" />
+              ) : null}
               <Button variant="outlined" onClick={() => void fetchNextPage()} disabled={isFetchingNextPage}>
                 {isFetchingNextPage ? 'Loading more…' : 'Load more'}
               </Button>
-              {listing.nextStartUri ? (
-                <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
-                  Showing {listing.entries.length} items{hasNextPage ? ' (more available)' : ''}.
-                </p>
-              ) : null}
             </Box>
           ) : null}
         </>
@@ -147,7 +215,7 @@ export function FolderListingView() {
 
 function LoadingNotice({ slow }: { slow: boolean }) {
   return (
-    <div role="status">
+    <div role="status" aria-live="polite">
       <p>Loading folder contents…</p>
       {slow ? <p className="muted">This folder may be large; still loading…</p> : null}
       <div className="skeleton" aria-hidden="true">
@@ -224,19 +292,27 @@ function FolderSummary({
   listing,
   filteredCount,
   filter,
+  hasMore,
+  isFetchingNextPage,
 }: {
   folderPath: string;
   listing: FolderListing | null;
   filteredCount: number;
   filter: string;
+  hasMore: boolean;
+  isFetchingNextPage: boolean;
 }) {
   if (!listing) return <strong>{folderPath}</strong>;
   const count = filter.trim() ? filteredCount : listing.entries.length;
   const noun = count === 1 ? 'item' : 'items';
+  const moreHint = hasMore ? ' (more in this folder)' : '';
+  const loadingHint = isFetchingNextPage ? ' — loading next page…' : '';
   return (
     <>
-      <strong>{count}</strong> {noun} in <strong>{listing.folderPath}</strong>
+      Showing <strong>{count}</strong> {noun} in <strong>{listing.folderPath}</strong>
+      {moreHint}
       {filter.trim() ? <> (filtered)</> : null}
+      {loadingHint}
     </>
   );
 }
@@ -307,7 +383,9 @@ function EntryRow({
               <IconButton
                 size="small"
                 aria-label={`Download ${entry.name}`}
-                onClick={() => triggerBrowserDownload(entry.path)}
+                onClick={() =>
+                  triggerBrowserDownload(entry.path)
+                }
               >
                 <DownloadIcon fontSize="small" />
               </IconButton>

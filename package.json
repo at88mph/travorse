@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./scripts/register-ts-extensions.mjs --test src/lib/vospace/*.test.ts src/lib/storage/*.test.ts src/lib/base-path.test.ts"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./scripts/register-ts-extensions.mjs --test src/lib/vospace/*.test.ts src/lib/storage/*.test.ts src/lib/base-path.test.ts src/lib/branding-config.test.ts src/lib/public-config.test.ts src/lib/vospace-features.test.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

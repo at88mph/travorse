@@ -20,10 +20,12 @@ export function getRegistryBaseUrls(): string[] {
     .filter(Boolean);
 }
 
+/** Max wait for the Registry HTTP response to start (TCP/TLS + headers). */
 export function registryConnectionTimeoutMs(): number {
   return parsePositiveInt(getEnv('REGISTRY_CONNECTION_TIMEOUT_MS'), 3000);
 }
 
+/** Max wait to read the full response body after the response has started. */
 export function registryReadTimeoutMs(): number {
   return parsePositiveInt(getEnv('REGISTRY_READ_TIMEOUT_MS'), 6000);
 }

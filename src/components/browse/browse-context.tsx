@@ -11,6 +11,12 @@ import {
   type ReactNode,
 } from 'react';
 import { folderEntriesQueryKey } from '@/lib/storage/entries-client';
+import {
+  LISTING_DEFAULT_PAGE_SIZE,
+  clampListingPageSize,
+  readStoredListingPageSize,
+  writeStoredListingPageSize,
+} from '@/lib/storage/listing-page-size';
 import type { StorageEntry } from '@/lib/storage/types';
 
 export interface FolderCapabilities {
@@ -54,6 +60,16 @@ const BrowseUploadContext = createContext<{
   startUploads: (folderPath: string, files: File[]) => Promise<void>;
 }>({ jobs: [], startUploads: async () => {} });
 
+const MainListingSettledContext = createContext<{
+  settled: boolean;
+  markSettled: () => void;
+}>({ settled: false, markSettled: () => {} });
+
+const BrowseListingPageSizeContext = createContext<{
+  pageSize: number;
+  setPageSize: (value: number) => void;
+}>({ pageSize: LISTING_DEFAULT_PAGE_SIZE, setPageSize: () => {} });
+
 export function BrowseFolderPathProvider({
   folderPath,
   children,
@@ -66,6 +82,36 @@ export function BrowseFolderPathProvider({
   const [capabilities, setCapabilities] = useState<FolderCapabilities | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set());
   const [jobs, setJobs] = useState<UploadJob[]>([]);
+  const [mainListingSettled, setMainListingSettled] = useState(false);
+  const [listingPageSize, setListingPageSizeState] = useState(LISTING_DEFAULT_PAGE_SIZE);
+
+  useEffect(() => {
+    setListingPageSizeState(readStoredListingPageSize());
+  }, []);
+
+  const setListingPageSize = useCallback((value: number) => {
+    const clamped = clampListingPageSize(value);
+    setListingPageSizeState(clamped);
+    writeStoredListingPageSize(clamped);
+  }, []);
+
+  const listingPageSizeValue = useMemo(
+    () => ({ pageSize: listingPageSize, setPageSize: setListingPageSize }),
+    [listingPageSize, setListingPageSize],
+  );
+
+  const markMainListingSettled = useCallback(() => {
+    setMainListingSettled(true);
+  }, []);
+
+  useEffect(() => {
+    setMainListingSettled(false);
+  }, [folderPath]);
+
+  const mainListingSettledValue = useMemo(
+    () => ({ settled: mainListingSettled, markSettled: markMainListingSettled }),
+    [mainListingSettled, markMainListingSettled],
+  );
 
   const filterValue = useMemo(() => ({ filter, setFilter }), [filter]);
   const capabilitiesValue = useMemo(
@@ -122,9 +168,7 @@ export function BrowseFolderPathProvider({
         }
       }
       await queryClient.invalidateQueries({ queryKey: folderEntriesQueryKey.path(targetFolder) });
-      await queryClient.invalidateQueries({
-        queryKey: folderEntriesQueryKey.infinite(targetFolder, 500),
-      });
+      await queryClient.invalidateQueries({ queryKey: folderEntriesQueryKey.root });
       window.setTimeout(() => {
         setJobs((prev) => prev.filter((job) => job.status === 'uploading'));
       }, 4000);
@@ -143,7 +187,13 @@ export function BrowseFolderPathProvider({
       <BrowseNameFilterContext.Provider value={filterValue}>
         <BrowseCapabilitiesContext.Provider value={capabilitiesValue}>
           <BrowseSelectionContext.Provider value={selectionValue}>
-            <BrowseUploadContext.Provider value={uploadValue}>{children}</BrowseUploadContext.Provider>
+            <BrowseUploadContext.Provider value={uploadValue}>
+              <MainListingSettledContext.Provider value={mainListingSettledValue}>
+                <BrowseListingPageSizeContext.Provider value={listingPageSizeValue}>
+                  {children}
+                </BrowseListingPageSizeContext.Provider>
+              </MainListingSettledContext.Provider>
+            </BrowseUploadContext.Provider>
           </BrowseSelectionContext.Provider>
         </BrowseCapabilitiesContext.Provider>
       </BrowseNameFilterContext.Provider>
@@ -173,4 +223,13 @@ export function useBrowseUploads() {
 
 export function isDownloadableEntry(entry: StorageEntry): boolean {
   return entry.kind === 'file' || entry.kind === 'link';
+}
+
+export function useMainListingSettled() {
+  return useContext(MainListingSettledContext);
+}
+
+/** User-chosen listing page size when `features.paging` is enabled (persisted in local storage). */
+export function useBrowseListingPageSize() {
+  return useContext(BrowseListingPageSizeContext);
 }

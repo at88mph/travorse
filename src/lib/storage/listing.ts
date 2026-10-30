@@ -47,13 +47,13 @@ export async function listFolderEntries(
   return toFolderListing(node, reader.uriPrefix, canonical);
 }
 
-function buildListingQuery(options?: ListFolderOptions): string {
+export function buildListingQuery(options?: ListFolderOptions): string {
   const parts = [LISTING_DETAIL];
   if (options?.pageSize != null && options.pageSize > 0) {
     parts.push(`limit=${Math.floor(options.pageSize)}`);
   }
   if (options?.startUri) {
-    parts.push(`startURI=${encodeURIComponent(options.startUri)}`);
+    parts.push(`uri=${encodeURIComponent(options.startUri)}`);
   }
   return parts.join('&');
 }

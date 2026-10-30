@@ -43,10 +43,7 @@ export function NewFolderDialog({ open, onClose }: NewFolderDialogProps) {
     setError(null);
     try {
       await createFolder(folderPath, validated.name);
-      await queryClient.invalidateQueries({ queryKey: folderEntriesQueryKey.path(folderPath) });
-      await queryClient.invalidateQueries({
-        queryKey: folderEntriesQueryKey.infinite(folderPath, 500),
-      });
+      await queryClient.invalidateQueries({ queryKey: folderEntriesQueryKey.infinitePrefix(folderPath) });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

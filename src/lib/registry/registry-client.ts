@@ -56,7 +56,10 @@ export class RegistryClient {
           cacheKey,
           queryURL,
           registryQueryCacheTtlMs(),
-          registryReadTimeoutMs(),
+          {
+            connectionMs: registryConnectionTimeoutMs(),
+            readMs: registryReadTimeoutMs(),
+          },
           registryMaxRetries(),
         );
         const map = parseJavaProperties(mapText);
@@ -81,7 +84,10 @@ export class RegistryClient {
       cacheKey,
       serviceCapsURL,
       registryQueryCacheTtlMs(),
-      registryCapabilitiesReadTimeoutMs(),
+      {
+        connectionMs: registryConnectionTimeoutMs(),
+        readMs: registryCapabilitiesReadTimeoutMs(),
+      },
       registryMaxRetries(),
     );
   }

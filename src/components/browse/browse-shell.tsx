@@ -7,12 +7,13 @@ import CssBaseline from '@mui/material/CssBaseline';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
 import Toolbar from '@mui/material/Toolbar';
-import Typography from '@mui/material/Typography';
 import { ThemeProvider } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AppBrand } from '@/components/app-brand';
+import { publicConfigQueryKey, fetchPublicConfig } from '@/lib/config-client';
 import { AllocationTree } from '@/components/browse/allocation-tree';
 import { BrowseFolderPathProvider } from '@/components/browse/browse-context';
 import { BrowseActionBar } from '@/components/browse/browse-action-bar';
@@ -44,6 +45,12 @@ export function BrowseShell({ children }: { children: ReactNode }) {
   const isDesktopMedia = useMediaQuery(theme.breakpoints.up('md'), { defaultMatches: false });
   const isDesktop = hasMounted && isDesktopMedia;
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const { data: publicConfig } = useQuery({
+    queryKey: publicConfigQueryKey,
+    queryFn: ({ signal }) => fetchPublicConfig(signal),
+    staleTime: 5 * 60_000,
+  });
 
   const drawer = (
     <Box
@@ -87,23 +94,11 @@ export function BrowseShell({ children }: { children: ReactNode }) {
                   <MenuIcon />
                 </IconButton>
               ) : null}
-              <Box
-                component={Link}
-                href="/browse"
-                sx={{
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  fontWeight: 650,
-                  flexGrow: 1,
-                  fontSize: '1.25rem',
-                  lineHeight: 1.2,
-                }}
-              >
-                Tra<span style={{ color: theme.palette.error.main }}>vo</span>rse
-                <Typography component="span" variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
-                  CANFAR storage browser
-                </Typography>
-              </Box>
+              <AppBrand
+                logoUrl={publicConfig?.logoUrl}
+                deploymentLabel={publicConfig?.deploymentLabel}
+                theme={theme}
+              />
               <SignInOut />
             </Toolbar>
           </AppBar>

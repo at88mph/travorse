@@ -110,6 +110,53 @@ Container env vars from .Values.application (and optional raw .Values.env overri
   value: {{ . | quote }}
 {{- end }}
 {{- end }}
+{{- with .userHomeDir }}
+{{- if not (hasKey $skip "VOSPACE_USER_HOME_DIR") }}
+- name: VOSPACE_USER_HOME_DIR
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- with .projectsFolderPath }}
+{{- if not (hasKey $skip "VOSPACE_PROJECTS_FOLDER_PATH") }}
+- name: VOSPACE_PROJECTS_FOLDER_PATH
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- with .groupManagementUri }}
+{{- if not (hasKey $skip "GROUP_MANAGEMENT_URI") }}
+- name: GROUP_MANAGEMENT_URI
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- with .features }}
+{{- if hasKey . "paging" }}
+{{- if not (hasKey $skip "VOSPACE_FEATURE_PAGING") }}
+- name: VOSPACE_FEATURE_PAGING
+  value: {{ .paging | quote }}
+{{- end }}
+{{- end }}
+{{- if hasKey . "externalLinks" }}
+{{- if not (hasKey $skip "VOSPACE_FEATURE_EXTERNAL_LINKS") }}
+- name: VOSPACE_FEATURE_EXTERNAL_LINKS
+  value: {{ .externalLinks | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- with $app.branding }}
+{{- with .logoUrl }}
+{{- if not (hasKey $skip "BRANDING_LOGO_URL") }}
+- name: BRANDING_LOGO_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- with .deploymentLabel }}
+{{- if not (hasKey $skip "DEPLOYMENT_LABEL") }}
+- name: DEPLOYMENT_LABEL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{- with .Values.env }}

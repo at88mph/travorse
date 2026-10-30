@@ -34,16 +34,27 @@ application:
     urls: []
     # Cache TTL in seconds (default 1800 seconds = 30 minutes)
     cacheTtlSeconds: 1800
-    # Connection timeout in milliseconds (default 3000 milliseconds = 3 seconds)
+    # Time to wait for the Registry HTTP response to start (default 3000 ms).
     connectionTimeoutMs: 3000
-    # Read timeout in milliseconds (default 6000 milliseconds = 6 seconds)
+    # Time to read the full body after the response starts (default 6000 ms).
     readTimeoutMs: 6000
     # Maximum number of retries before moving on to the next Registry URL (default 1)
     maxRetries: 1
+  branding:
+    # HTTPS URL to a logo image (PNG, JPEG, SVG, etc.) shown in the app bar.
+    logoUrl: ""
+    deploymentLabel: ""
   # VOSpace service binding. vos:// prefix; the ivo:// Registry resource ID is derived from it.
   # Example: vos://cadc.nrc.ca~arc  →  ivo://cadc.nrc.ca/arc
   vospace:
     uri: ""
+    userHomeDir: "/home"
+    projectsFolderPath: "/projects"
+    groupManagementUri: ""
+    # Set paging: false for VOSpace servers that reject limit/uri query params.
+    features:
+      paging: false
+      externalLinks: false
 
 # Extra container env entries (advanced overrides).
 env: []

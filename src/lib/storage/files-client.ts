@@ -66,12 +66,30 @@ export function uploadFilesToFolder(
   });
 }
 
-export function triggerBrowserDownload(filePath: string): void {
-  window.location.assign(fileDownloadUrl(filePath));
+export interface BrowserDownloadItem {
+  path: string;
+  name?: string;
 }
 
-export function triggerBrowserDownloads(filePaths: string[]): void {
-  for (const path of filePaths) {
-    triggerBrowserDownload(path);
-  }
+/**
+ * Start download via the BFF (session cookie on first hop). A hidden iframe follows
+ * BFF 303 → VOSpace pre-auth URL without `fetch(..., redirect: 'manual')`, which
+ * yields opaque status 0 when Location is cross-origin.
+ */
+export function triggerBrowserDownload(filePath: string): void {
+  const url = fileDownloadUrl(filePath);
+  const frame = document.createElement('iframe');
+  frame.style.display = 'none';
+  frame.title = 'Download';
+  frame.src = url;
+  document.body.appendChild(frame);
+  window.setTimeout(() => frame.remove(), 120_000);
+}
+
+export function triggerBrowserDownloads(items: BrowserDownloadItem[]): void {
+  items.forEach((item, index) => {
+    const run = () => triggerBrowserDownload(item.path);
+    if (index === 0) run();
+    else window.setTimeout(run, index * 250);
+  });
 }

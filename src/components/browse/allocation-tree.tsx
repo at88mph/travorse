@@ -13,16 +13,16 @@ import Typography from '@mui/material/Typography';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useBrowseFolderPath } from '@/components/browse/browse-context';
-import { browseHref } from '@/lib/storage/folder-path';
 import {
-  allocationsQueryKey,
-  fetchFolderEntries,
-  folderEntriesQueryKey,
-} from '@/lib/storage/entries-client';
+  useBrowseFolderPath,
+  useBrowseListingPageSize,
+  useMainListingSettled,
+} from '@/components/browse/browse-context';
+import { publicConfigQueryKey, fetchPublicConfig } from '@/lib/config-client';
+import { browseHref } from '@/lib/storage/folder-path';
+import { folderEntriesInfiniteQueryOptions } from '@/lib/storage/folder-entries-infinite';
+import type { PublicConfig } from '@/lib/public-config';
 import type { StorageEntry } from '@/lib/storage/types';
-
-const TREE_PAGE_SIZE = 500;
 
 function ancestorPaths(folderPath: string): string[] {
   if (folderPath === '/') return [];
@@ -38,17 +38,36 @@ function ancestorPaths(folderPath: string): string[] {
 
 export function AllocationTree() {
   const currentPath = useBrowseFolderPath();
+  const { settled: mainListingSettled } = useMainListingSettled();
+  const { pageSize: listingPageSize } = useBrowseListingPageSize();
+
+  const { data: publicConfig } = useQuery({
+    queryKey: publicConfigQueryKey,
+    queryFn: ({ signal }) => fetchPublicConfig(signal),
+    staleTime: 5 * 60_000,
+  });
+
+  const rootOptions = useMemo(
+    () => folderEntriesInfiniteQueryOptions('/', publicConfig, listingPageSize),
+    [publicConfig, listingPageSize],
+  );
+
   const {
-    data: allocations,
+    data,
     isLoading,
     isError,
     error,
-  } = useQuery({
-    queryKey: allocationsQueryKey,
-    queryFn: ({ signal }) => fetchFolderEntries({ folderPath: '/', signal }),
-    staleTime: 10 * 60_000,
-    select: (listing) => listing.entries.filter((entry): entry is StorageEntry => entry.kind === 'folder'),
+    isFetching,
+  } = useInfiniteQuery({
+    ...rootOptions,
+    enabled: publicConfig !== undefined && mainListingSettled,
+    select: (result) =>
+      result.pages.flatMap((page) =>
+        page.entries.filter((entry): entry is StorageEntry => entry.kind === 'folder'),
+      ),
   });
+
+  const allocations = data;
 
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
@@ -69,7 +88,7 @@ export function AllocationTree() {
     });
   };
 
-  if (isLoading) {
+  if (!mainListingSettled || (isLoading && !allocations?.length)) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
         <CircularProgress size={24} aria-label="Loading allocations" />
@@ -94,7 +113,7 @@ export function AllocationTree() {
   }
 
   return (
-    <nav aria-label="Allocations and folders">
+    <nav aria-label="Allocations and folders" aria-busy={isFetching}>
       <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
         Allocations
       </Typography>
@@ -107,6 +126,7 @@ export function AllocationTree() {
             currentPath={currentPath}
             expanded={expanded}
             onToggle={toggle}
+            publicConfig={publicConfig}
           />
         ))}
       </List>
@@ -120,12 +140,14 @@ function FolderBranch({
   currentPath,
   expanded,
   onToggle,
+  publicConfig,
 }: {
   entry: StorageEntry;
   depth: number;
   currentPath: string;
   expanded: Set<string>;
   onToggle: (path: string) => void;
+  publicConfig: PublicConfig | undefined;
 }) {
   const isOpen = expanded.has(entry.path);
   const selected = currentPath === entry.path;
@@ -161,6 +183,7 @@ function FolderBranch({
           currentPath={currentPath}
           expanded={expanded}
           onToggle={onToggle}
+          publicConfig={publicConfig}
         />
       ) : null}
     </>
@@ -173,13 +196,22 @@ function FolderChildren({
   currentPath,
   expanded,
   onToggle,
+  publicConfig,
 }: {
   folderPath: string;
   depth: number;
   currentPath: string;
   expanded: Set<string>;
   onToggle: (path: string) => void;
+  publicConfig: PublicConfig | undefined;
 }) {
+  const { pageSize: listingPageSize } = useBrowseListingPageSize();
+
+  const childOptions = useMemo(
+    () => folderEntriesInfiniteQueryOptions(folderPath, publicConfig, listingPageSize),
+    [folderPath, publicConfig, listingPageSize],
+  );
+
   const {
     data,
     isLoading,
@@ -189,25 +221,23 @@ function FolderChildren({
     isError,
     error,
   } = useInfiniteQuery({
-    queryKey: folderEntriesQueryKey.infinite(folderPath, TREE_PAGE_SIZE),
-    queryFn: ({ pageParam, signal }) =>
-      fetchFolderEntries({
-        folderPath,
-        pageSize: TREE_PAGE_SIZE,
-        startUri: pageParam,
-        signal,
-      }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.nextStartUri,
+    ...childOptions,
+    enabled: publicConfig !== undefined,
     select: (result) => {
       const folders = result.pages.flatMap((page) =>
         page.entries.filter((entry): entry is StorageEntry => entry.kind === 'folder'),
       );
-      return { folders };
+      const lastPage = result.pages[result.pages.length - 1];
+      return {
+        folders,
+        hasMore: Boolean(lastPage?.nextStartUri),
+        loadedFolderCount: folders.length,
+      };
     },
   });
 
   const folders = useMemo(() => data?.folders ?? [], [data?.folders]);
+  const hasMore = data?.hasMore ?? false;
 
   if (isLoading) {
     return (
@@ -235,6 +265,7 @@ function FolderChildren({
           currentPath={currentPath}
           expanded={expanded}
           onToggle={onToggle}
+          publicConfig={publicConfig}
         />
       ))}
       {hasNextPage ? (
@@ -242,6 +273,11 @@ function FolderChildren({
           <Button size="small" onClick={() => void fetchNextPage()} disabled={isFetchingNextPage}>
             {isFetchingNextPage ? 'Loading…' : 'Load more folders'}
           </Button>
+          {hasMore ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+              Showing {data?.loadedFolderCount ?? folders.length} folders loaded
+            </Typography>
+          ) : null}
         </Box>
       ) : null}
     </>

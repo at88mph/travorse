@@ -29,16 +29,9 @@ export async function GET(_request: Request, context: RouteContext) {
     if (node.type !== 'DataNode') {
       return jsonMessage('That path is not a file', 409);
     }
-    const upstream = await client.getFileStream(filePath);
-    const fileName = filePath.slice(filePath.lastIndexOf('/') + 1);
-    const headers = new Headers();
-    const contentType = upstream.headers.get('content-type');
-    if (contentType) headers.set('Content-Type', contentType);
-    const length = upstream.headers.get('content-length');
-    if (length) headers.set('Content-Length', length);
-    headers.set('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
-    headers.set('Cache-Control', 'no-store');
-    return new Response(upstream.body, { status: 200, headers });
+
+    const location = await client.resolveBrowserDownloadURL(filePath);
+    return Response.redirect(location, 303);
   } catch (err) {
     const mapped = listingErrorResponse(err);
     return jsonMessage(mapped.message, mapped.status);

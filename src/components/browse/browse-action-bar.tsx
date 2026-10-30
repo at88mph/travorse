@@ -35,24 +35,29 @@ export function BrowseActionBar() {
   const uploading = jobs.some((job) => job.status === 'uploading');
 
   const selectedEntries = useMemo(() => {
-    const data = queryClient.getQueryData<{ pages: { entries: StorageEntry[] }[] }>(
-      folderEntriesQueryKey.infinite(folderPath, 500),
-    );
+    const matches = queryClient.getQueriesData<{ pages: { entries: StorageEntry[] }[] }>({
+      queryKey: folderEntriesQueryKey.infinitePrefix(folderPath),
+    });
+    const data = matches[0]?.[1];
     if (!data?.pages) return [];
     const all = data.pages.flatMap((page) => page.entries);
     return all.filter((entry) => selectedPaths.has(entry.path));
   }, [queryClient, folderPath, selectedPaths]);
 
-  const downloadablePaths = useMemo(
-    () => selectedEntries.filter(isDownloadableEntry).map((entry) => entry.path),
+  const downloadableItems = useMemo(
+    () =>
+      selectedEntries.filter(isDownloadableEntry).map((entry) => ({
+        path: entry.path,
+        name: entry.name,
+      })),
     [selectedEntries],
   );
 
-  const downloadEnabled = downloadablePaths.length > 0;
+  const downloadEnabled = downloadableItems.length > 0;
   const downloadHint =
-    downloadablePaths.length === 0
+    downloadableItems.length === 0
       ? 'Select files to download'
-      : `Download ${downloadablePaths.length} selected item(s)`;
+      : `Download ${downloadableItems.length} selected item(s)`;
 
   const onUploadClick = () => fileInputRef.current?.click();
 
@@ -65,7 +70,7 @@ export function BrowseActionBar() {
 
   const onDownload = () => {
     if (!downloadEnabled) return;
-    triggerBrowserDownloads(downloadablePaths);
+    triggerBrowserDownloads(downloadableItems);
   };
 
   return (

@@ -10,6 +10,7 @@ import {
 } from './errors';
 import type { VospaceNode } from './node';
 import { parseNodeXml, writeNodeXml } from './node-xml';
+import { parseTransferEndpoint, writePullTransferXml } from './transfer-xml';
 import {
   VOSPACE_FILES,
   VOSPACE_FILES_20,
@@ -144,45 +145,31 @@ export class VOSpaceClient {
     await this.nodesRequest(path, 'DELETE');
   }
 
-  /** GET file content from the Files capability (for download proxying). */
-  async getFileStream(relativePath: string): Promise<Response> {
+  /** Registry Files base URL + node path (anonymous redirect only; no bearer on browser follow). */
+  async getFileDownloadURL(relativePath: string): Promise<string> {
     const target = this.resolveTarget(relativePath);
     const filesUrl = await this.getFilesServiceURL();
-    const url = buildServiceEndpoint(filesUrl, target.path);
-    const headers: Record<string, string> = { Accept: '*/*' };
-    if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
+    return buildServiceEndpoint(filesUrl, target.path);
+  }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
-    try {
-      const response = await this.fetchImpl(url, {
-        method: 'GET',
-        headers,
-        cache: 'no-store',
-        redirect: 'manual',
-        signal: controller.signal,
-      });
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get('location');
-        throw new VospaceError(
-          `Unexpected redirect from VOSpace files${location ? ` to ${location}` : ''} (HTTP ${response.status})`,
-          { status: response.status },
-        );
-      }
-      if (!response.ok) {
-        const text = await response.text();
-        throw vospaceHttpError(response.status, text);
-      }
-      return response;
-    } catch (err) {
-      if (err instanceof VospaceError) throw err;
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new VospaceError(`GET ${url} timed out after ${this.requestTimeoutMs}ms`, { cause: err });
-      }
-      throw new VospaceError(`GET ${url} failed`, { cause: err });
-    } finally {
-      clearTimeout(timer);
+  /**
+   * Negotiate a pre-authenticated HTTPS GET URL via sync-2.1 (storage-ui
+   * `FileItemServerResource.toEndpoint` for token auth).
+   */
+  async negotiatePullDownloadEndpoint(relativePath: string): Promise<string> {
+    const target = this.resolveTarget(relativePath);
+    const syncUrl = await this.getSyncServiceURL();
+    const transferXml = writePullTransferXml(target.toString());
+    const jobUrl = await this.postSyncTransferForJobUrl(syncUrl, transferXml);
+    return this.resolvePullEndpointFromJobUrl(jobUrl, syncUrl);
+  }
+
+  /** Resolve redirect URL for browser download (pre-auth when bearer present). */
+  async resolveBrowserDownloadURL(relativePath: string): Promise<string> {
+    if (this.accessToken) {
+      return this.negotiatePullDownloadEndpoint(relativePath);
     }
+    return this.getFileDownloadURL(relativePath);
   }
 
   /** PUT file bytes to the Files capability after the data node exists. */
@@ -253,6 +240,103 @@ export class VOSpaceClient {
     return this.send(url, method, body);
   }
 
+  private authHeaders(accept: string): Record<string, string> {
+    const headers: Record<string, string> = { Accept: accept };
+    if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
+    return headers;
+  }
+
+  private async postSyncTransferForJobUrl(syncUrl: string, transferXml: string): Promise<string> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    try {
+      const response = await this.fetchImpl(syncUrl, {
+        method: 'POST',
+        headers: {
+          ...this.authHeaders('text/xml, application/xml;q=0.9'),
+          'Content-Type': 'text/xml; charset=UTF-8',
+        },
+        body: transferXml,
+        cache: 'no-store',
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (!location) {
+          throw new VospaceError(`Sync transfer POST returned ${response.status} without Location`);
+        }
+        return new URL(location, syncUrl).toString();
+      }
+      const text = await response.text();
+      throw vospaceHttpError(response.status, text);
+    } catch (err) {
+      if (err instanceof VospaceError) throw err;
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new VospaceError(`POST ${syncUrl} timed out after ${this.requestTimeoutMs}ms`, { cause: err });
+      }
+      throw new VospaceError(`POST ${syncUrl} failed`, { cause: err });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * After sync POST, GET the job URL with the bearer token and follow sync/UWS
+   * redirects on the server (Java {@code HttpGet} with followRedirects). Only
+   * hand a URL to the browser when it is not another negotiation/job resource.
+   */
+  private async resolvePullEndpointFromJobUrl(jobUrl: string, syncUrl: string): Promise<string> {
+    let url = jobUrl;
+    for (let hop = 0; hop < 8; hop++) {
+      const response = await this.getSyncTransferJobResponse(url);
+      if (response.status >= 300 && response.status < 400) {
+        const next = locationFromRedirect(response, url);
+        if (!isTransferNegotiationUrl(next, syncUrl)) {
+          return next;
+        }
+        url = next;
+        continue;
+      }
+      const text = await response.text();
+      if (response.status >= 200 && response.status < 300) {
+        const endpoint = parseTransferEndpoint(text);
+        if (!endpoint) {
+          throw new VospaceError('VOSpace sync transfer did not return a download endpoint');
+        }
+        if (!isTransferNegotiationUrl(endpoint, syncUrl)) {
+          return endpoint;
+        }
+        url = endpoint;
+        continue;
+      }
+      throw vospaceHttpError(response.status, text);
+    }
+    throw new VospaceError('Sync transfer negotiation exceeded redirect limit');
+  }
+
+  private async getSyncTransferJobResponse(url: string): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    try {
+      return await this.fetchImpl(url, {
+        method: 'GET',
+        headers: this.authHeaders('text/xml, application/xml;q=0.9'),
+        cache: 'no-store',
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (err instanceof VospaceError) throw err;
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new VospaceError(`GET ${url} timed out after ${this.requestTimeoutMs}ms`, { cause: err });
+      }
+      throw new VospaceError(`GET ${url} failed`, { cause: err });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async send(
     url: string,
     method: string,
@@ -313,6 +397,40 @@ export function buildServiceEndpoint(serviceUrl: string, decodedPath: string, qu
     if (q) url += `?${q}`;
   }
   return url;
+}
+
+function locationFromRedirect(response: Response, baseUrl: string): string {
+  const location = response.headers.get('location');
+  if (!location) {
+    throw new VospaceError(`Sync transfer job returned ${response.status} without Location`);
+  }
+  return new URL(location, baseUrl).toString();
+}
+
+/** URLs that must be fetched with the bearer token, not opened in the browser. */
+function isTransferNegotiationUrl(candidate: string, syncUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return true;
+  }
+  const path = url.pathname.toLowerCase();
+  if (path.includes('/synctrans') || path.endsWith('/sync') || path.includes('/sync/')) return true;
+  if (path.includes('/transfers')) return true;
+  if (path.includes('/jobs/')) return true;
+  if (/[?&](jobid|runid)=/i.test(url.search)) return true;
+
+  try {
+    const sync = new URL(syncUrl);
+    if (url.origin === sync.origin) {
+      const syncPath = sync.pathname.replace(/\/$/, '');
+      if (path === syncPath || path.startsWith(`${syncPath}/`)) return true;
+    }
+  } catch {
+    return true;
+  }
+  return false;
 }
 
 function stripTrailingSlashes(url: string): string {

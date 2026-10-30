@@ -121,4 +121,44 @@ describe('VOSpaceClient', () => {
     const vos = client({ endpoints: {} });
     await assert.rejects(() => vos.getBaseURL(), ServiceNotFoundError);
   });
+
+  it('follows authenticated sync job redirects before handing off a download URL', async () => {
+    const sync = 'https://ws.example/vault/synctrans';
+    const job = 'https://ws.example/vault/synctrans/job/abc';
+    const details = 'https://ws.example/vault/synctrans/job/abc/results/transfer';
+    const preauth = 'https://files.example/data/home/file.txt?preauth=xyz';
+    const transferXml = `<?xml version="1.0"?>
+<vos:transfer xmlns:vos="http://www.ivoa.net/xml/VOSpace/v2.1">
+  <vos:protocol uri="ivo://ivoa.net/vospace/core#httpsget">
+    <vos:endpoint>${preauth}</vos:endpoint>
+  </vos:protocol>
+</vos:transfer>`;
+    const seen: string[] = [];
+    const vos = client({
+      token: 'access-token',
+      endpoints: {
+        [VOSPACE_NODES_20]: NODES,
+        [VOSPACE_SYNC_21]: sync,
+      },
+      fetchImpl: async (input, init) => {
+        const method = init?.method ?? 'GET';
+        seen.push(`${method} ${input}`);
+        assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer access-token');
+        if (method === 'POST' && String(input) === sync) {
+          return new Response('', { status: 303, headers: { Location: job } });
+        }
+        if (String(input) === job) {
+          return new Response('', { status: 303, headers: { Location: details } });
+        }
+        if (String(input) === details) {
+          return new Response(transferXml, { status: 200 });
+        }
+        return new Response('unexpected', { status: 500 });
+      },
+    });
+
+    const url = await vos.resolveBrowserDownloadURL('/home/file.txt');
+    assert.equal(url, preauth);
+    assert.deepEqual(seen, [`POST ${sync}`, `GET ${job}`, `GET ${details}`]);
+  });
 });

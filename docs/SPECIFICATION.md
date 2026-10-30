@@ -218,6 +218,9 @@ interface CachedServiceEndpoint {
 | `REGISTRY_CACHE_TTL_SECONDS` | TTL for resolved endpoints | `1800` (30 minutes) |
 | `REGISTRY_CACHE_MAX_ENTRIES` | LRU cap per process | `500` |
 | `REGISTRY_URLS` | Comma-separated Registry base URLs (Java `RegistryClient.baseURL` list); tried in order | deployment-specific |
+| `REGISTRY_CONNECTION_TIMEOUT_MS` | Abort if the Registry HTTP response has not **started** within this time (connect + headers) | `3000` |
+| `REGISTRY_READ_TIMEOUT_MS` | Abort if the response **body** is not fully read within this time after the response starts (property maps) | `6000` |
+| `REGISTRY_MAX_RETRIES` | Retries per Registry base URL before trying the next URL | `1` |
 | `REGISTRY_CACHE_REDIS_URL` | Optional shared Registry cache (see §3.8) | **unset / empty = disabled (default)** |
 | `REGISTRY_STALE_ON_ERROR` | Serve stale entry if Registry fails | `true` |
 
@@ -267,21 +270,23 @@ Each running instance binds to **exactly one** VOSpace service. There is no list
 | `VOSPACE_PROJECTS_FOLDER_PATH` | Quick-link to shared projects tree (default `/projects`) |
 | `GMS_RESOURCE_ID` | Group Management service for permission UI |
 | `GROUP_MANAGEMENT_URI` | Optional link to external group admin UI |
-| `UI_THEME` | Theme id (for example `canfar`) |
 
 **Feature flags** for this VOSpace implementation:
 
 ```typescript
 interface VospaceFeatures {
-  batchDownload: boolean;
-  batchUpload: boolean;
   externalLinks: boolean;
   paging: boolean;
-  directDownload: boolean;  // default false: proxy stream; true: HTTP 302 when safe
 }
 ```
 
-UI and BFF must respect flags: do not call unsupported VOSpace query parameters (for example `limit` / `startURI` when `paging: false`).
+Batch folder download (VOSpace package / sync) and multi-file upload are **product capabilities** (Phase 3 packages, HTTP multipart upload)—not legacy `storage-ui` batch feature toggles.
+
+UI and BFF must respect flags: do not call unsupported VOSpace query parameters (for example `limit` / `uri` when `paging: false`). Paging support is **operator-configured** until IVOA Registry / VOSI advertises container listing paging per service.
+
+| Helm / env | Feature flag |
+|------------|----------------|
+| `application.vospace.features.paging` / `VOSPACE_FEATURE_PAGING` | When `false`, BFF omits VOSpace `limit` and `uri`; UI omits `pageSize` and `startUri`. When `true`, use Vault-style **`uri`** (not `startURI`) as the VOSpace continuation query param; public BFF keeps **`startUri`** / **`nextStartUri`**. The UI exposes **user-chosen page size** (default **50**, presets up to **500**); the same size is sent on every page including “Load more”. |
 
 ### 4.2 Legacy property mapping (informative)
 
@@ -328,11 +333,8 @@ application:
     projectsFolderPath: "/projects"
     groupManagementUri: "https://www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/en/groups"
     features:
-      batchDownload: false
-      batchUpload: false
       externalLinks: false
       paging: true
-      directDownload: false
 gmsResourceId: "ivo://cadc.nrc.ca/gms"
 ```
 
@@ -346,19 +348,22 @@ A second backend (for example Vault) is a **second chart instance** with a diffe
 interface PublicConfig {
   /** Human-readable label for this deployment (optional; for header/branding, not backend switching). */
   deploymentLabel?: string;
+  /** Optional logo image URL (HTTPS/HTTP); loaded by the browser in the app bar. */
+  logoUrl?: string;
   /** Configured `vos://` prefix (`VOSPACE_URI`). */
   nodeUriPrefix: string;
   userHomeDir: string;
   projectsFolderPath: string;
   groupManagementUri?: string;
   features: VospaceFeatures;
-  theme: string;
   /** Next.js `basePath` when using path-based deployment (§4.6). */
   basePath: string;
   /** Set when using dedicated hostname branding (optional). */
   publicOrigin?: string;
 }
 ```
+
+Branding env (Helm `application.branding`): `BRANDING_LOGO_URL`, `DEPLOYMENT_LABEL`. The logo link targets the **application** browse home (`/browse` + `basePath`), not the user’s VOSpace home folder.
 
 **Must not** trigger Registry lookups. **Must not** expose a list of alternate VOSpace backends.
 
@@ -494,7 +499,7 @@ Public routes use **folder**, **file**, **link**, or neutral **entries** — nev
 | PUT | `/api/v1/folders/{path...}` | 1 | Create folder at `{path}` |
 | DELETE | `/api/v1/entries/{path...}` | 1 | Delete file, link, or folder (recursive job if folder non-empty) |
 | POST | `/api/v1/folders/{path...}/files` | 1 | Multipart upload into folder |
-| GET | `/api/v1/files/{path...}/content` | 1 | Download file (stream or 302) |
+| GET | `/api/v1/files/{path...}` | 1 | Download file (303 to VOSpace) |
 | POST | `/api/v1/transfers/move` | 1 | Move files/folders/links via VOSpace transfer |
 | PATCH | `/api/v1/entries/{path...}/access` | 2 | Update access control (multi-group) |
 | GET | `/api/v1/folders/{path...}/quota` | 2 | *(Deprecated by `/statistics`; optional alias)* |
@@ -520,7 +525,7 @@ Lists **files, folders, and links** directly inside the folder at `{path}`. For 
 
 | Param | Required | Description |
 |-------|----------|-------------|
-| `pageSize` | No | Max entries (if `features.paging`) |
+| `pageSize` | No | Max entries per page when `features.paging` (default **50**, max **500** if omitted on the BFF) |
 | `startUri` | No | Cursor for next page (internal VOS URI; opaque to UI copy) |
 
 **Response:** `FolderListing`
@@ -614,10 +619,58 @@ Uses VOSpace transfer push into `{folderPath}`.
 
 Only valid when `{path}` identifies a **file**. Wrong kind → `404` or `409` with clear error.
 
-1. If `directDownload` and platform policy allows: **`302`** to Files service or transfer pull URL
-2. Else: **stream** through BFF with appropriate `Content-Type` and `Content-Disposition`
+Always respond **`303 See Other`** to an ultimate download URL (no byte proxy through the BFF). **Signed-in:** negotiate via **sync-2.1** (`POST` transfer, then **`GET` job URL with bearer** and follow sync/UWS redirects on the server, as Java `HttpGet` does); the BFF **`Location`** is the final **pre-auth** HTTPS GET URL from transfer XML or a non-negotiation redirect — never a UWS job URL the browser would call without credentials. **Anonymous:** **`303`** to Registry **Files** URL + path (not pre-authorized). The UI opens the BFF download URL in a hidden iframe so the browser follows redirects to VOSpace (avoid `fetch` + `redirect: manual`, which is opaque for cross-origin `Location`).
 
-Resolve download endpoint via Registry standards **`VOSPACE_FILES`** then **`VOSPACE_FILES_20`** (first hit cached).
+Registry: **`VOSPACE_SYNC_21`** for negotiation; **`VOSPACE_FILES`** / **`VOSPACE_FILES_20`** for anonymous redirect.
+
+#### 6.8.1 Scope and configuration
+
+| Item | Behavior |
+|------|----------|
+| **Routes** | `{contextPath}/file{path}` or `{contextPath}/{svc}/file{path}` → `FileItemServerResource` (`StorageApplication`) |
+| **`directDownload`** | Loaded into `VOSpaceServiceConfig.Features.supportsDirectDownload` via `VOSpaceServiceConfigManager`. **Not read anywhere in `FileItemServerResource`.** |
+| **Effect of flag on this GET** | None. Single-file GET **always** ends in an HTTP redirect to a VOSpace Files / transfer URL; the UI never proxies the bytes through this resource. (`supportsDirectDownload()` only gates redirect vs proxy in `PostAction` for package/synctrans downloads.) |
+
+##### Request lifecycle
+
+###### 1. Init (`StorageItemServerResource.doInit`)
+
+- Resolve `currentService` from `{svc}` (or default).
+- Construct `VOSpaceClient` for that service’s registry resource ID.
+- Initialize `StorageItemFactory`.
+
+###### 2. Entry — `@Get download()`
+
+- `path ← getCurrentPath()` from route attribute `path` (default `/`).
+- `dataNode ← getNode(path, null, null)`:
+  - `voSpaceClient.getNode(path, "")` under `executeSecurely(getVOSpaceCallingSubject())`.
+  - Augment node with parent paths; map auth/registry failures to `ResourceException` / `NotAuthenticatedException` as implemented in `getNode`.
+
+###### 3. Download — `download(dataNode)`
+
+- `subject ← getVOSpaceCallingSubject()` (`SecureServerResource.getCallingSubject` on VOSpace base URL; may attach OIDC bearer token → `AuthMethod.TOKEN`).
+- `dataNodeVOSURI ← toURI(dataNode)` → `{nodeResourceID}{path}`.
+- `authMethod ← AuthenticationUtil.getAuthMethodFromCredentials(subject)`.
+- `baseURL ← lookupDownloadEndpoint(serviceURI, authMethod)`:
+  - Registry lookup, in order: `Standards.VOSPACE_FILES`, then `Standards.VOSPACE_FILES_20`.
+  - If neither resolves → `IllegalStateException` (“Incomplete configuration in the registry…”).
+
+###### 4. Redirect target (303 See Other via `redirectSeeOther`)
+
+| Condition | `Location` |
+|-----------|------------|
+| `authMethod == TOKEN` **and** subject has **no** `AuthorizationToken` credentials | `baseURL + dataNodeVOSURI.getPath()` |
+| `authMethod == TOKEN` **and** subject **has** token(s) | `toEndpoint(dataNodeVOSURI.getURI())` — `voSpaceClient.createTransfer(pullFromVoSpace, default view, `HTTPS_GET`, VOSpace 2.1) → transfer endpoint URL |
+| Any other auth method (ANON, CERT, COOKIE, …) | `baseURL + dataNodeVOSURI.getPath()` |
+
+###### 5. Outcome
+
+- **Success:** HTTP redirect; client fetches file **directly** from the backend Files/transfer URL (no streaming through storage-ui).
+- **Failure:** Exceptions from node lookup, registry, or transfer creation propagate as Restlet/resource errors (no proxy fallback on this path).
+
+##### Non-goals on this path
+
+- No request-body handling (POST/PUT upload path is separate).
 
 ### 6.9 Move — `POST /api/v1/transfers/move`
 
@@ -860,7 +913,7 @@ Disable or hide actions when:
 
 ### 7.6 CANFAR branding
 
-Replace legacy FreeMarker CANFAR header include with configurable theme (`UI_THEME=canfar`): logo URL, footer links, and shared CSS tokens where Science Portal exposes them.
+The product uses a **fixed** visual design (MUI shell, system light/dark). Per-deployment differentiation is via **`logoUrl`** and **`deploymentLabel`** (§4.4), not a theme switcher. Optional multi-theme support may be added later if requested.
 
 ### 7.7 User feedback and perceived performance (normative)
 
@@ -872,7 +925,10 @@ Operations can take **tens of seconds or longer** (large `/home` listings, multi
 |-----------|-------------|
 | Initial navigation | Skeleton rows or table placeholder; message such as “Loading folder contents…” |
 | Request exceeds ~2s | Inline notice: “This folder may be large; still loading…” (do not block the rest of the shell) |
-| Paged results (`nextStartUri`) | Show partial results immediately; **“Load more”** or infinite scroll with spinner at bottom; display loaded count (for example “Showing 400 of many…”) |
+| Paged results (`nextStartUri`) | **Items per page** control when paging is enabled (default 50); show partial results immediately; **“Load more”** with spinner at bottom; display loaded count (for example “Showing 50 (more in this folder)”) |
+| Initial load &gt; ~2s | Inline “may be large; still loading…” (including **first** navigation, not only background refetch) |
+| Name filter with more pages | Hint that filter applies to **loaded** items only |
+| `features.paging: false` | Info banner: full listings may take minutes on very large folders |
 | Background refetch | Keep previous listing visible with subtle progress indicator (stale-while-revalidate) |
 | Failure | Error banner with **Retry**. A VOSpace **401** or **403** says a login may be needed and that group memberships may still deny access (§5.2). Any other failure shows the service message as returned. Preserve the last successful listing when retrying |
 | Empty folder | Distinct empty state (not confused with loading) |
@@ -922,7 +978,7 @@ The server client is `VOSpaceClient` in `src/lib/vospace/` (aligned with OpenCAD
 
 | Public BFF operation | User concept | VOSpace (internal) |
 |------------------------|--------------|-------------------|
-| `GET .../folders/.../entries` | Folder listing | GET container children, detail/limit/startURI |
+| `GET .../folders/.../entries` | Folder listing | GET container children, `detail` / `limit` / VOSpace query **`uri`** (cursor); BFF query **`startUri`** |
 | `GET .../entries/...` | File, folder, or link detail | GET by path |
 | `PUT .../folders/...` | Create folder | PUT container |
 | `DELETE .../entries/...` | Delete | DELETE or recursive delete job |
@@ -978,7 +1034,7 @@ The Java application will **not** receive new features. This table is for operat
 ### 10.1 Performance
 
 - **Registry:** §3 caching mandatory; target **>99% hit rate** under normal browsing in steady state
-- **List endpoint:** p95 < 2s for `pageSize` ≤ 400 on typical folders (network to VOSpace dominates)
+- **List endpoint:** p95 < 2s for typical user page sizes (≤ 200) on typical folders (network to VOSpace dominates)
 - **Upload/download:** Streaming; do not buffer entire object in memory
 
 ### 10.2 Security

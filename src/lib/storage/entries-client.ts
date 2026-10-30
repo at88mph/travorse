@@ -56,10 +56,10 @@ export async function fetchFolderEntries(params: FetchFolderEntriesParams): Prom
 export const folderEntriesQueryKey = {
   root: ['folder-entries'] as const,
   path: (folderPath: string) => ['folder-entries', folderPath] as const,
-  infinite: (folderPath: string, pageSize: number) => ['folder-entries', folderPath, { pageSize }] as const,
+  infinite: (folderPath: string, paging: boolean, pageSize?: number) =>
+    ['folder-entries', folderPath, 'infinite', { paging, pageSize }] as const,
+  infinitePrefix: (folderPath: string) => ['folder-entries', folderPath, 'infinite'] as const,
 };
-
-export const allocationsQueryKey = ['allocations'] as const;
 
 export const sessionNavigationQueryKey = ['session-navigation'] as const;
 
